@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: wizard-of-words-dashboard
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --timeout 120
+    envVars:
+      - key: EB_TOKEN
+        sync: false
+      - key: EB_ORG_ID
+        sync: false
+      - key: FB_TOKEN
+        sync: false
+      - key: FB_AD_ACCOUNT
+        sync: false
