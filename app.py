@@ -262,14 +262,19 @@ def build_dashboard_html():
 
     events = fetch_eb_events()
 
-    now = datetime.utcnow()
+    # Use the ad account's timezone (America/Los_Angeles) so "today" matches Facebook's definition
+    AD_ACCOUNT_TZ = ZoneInfo("America/Los_Angeles")
+    now = datetime.now(AD_ACCOUNT_TZ)
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    # Convert to UTC for Eventbrite API (which expects UTC timestamps)
+    from datetime import timezone as _tz
+    today_start_utc = today_start.astimezone(_tz.utc)
     periods = {
-        "today": today_start.isoformat() + "Z",
-        "yesterday": (today_start - timedelta(days=1)).isoformat() + "Z",
-        "last2": (today_start - timedelta(days=2)).isoformat() + "Z",
-        "last7": (today_start - timedelta(days=7)).isoformat() + "Z",
-        "last30": (today_start - timedelta(days=30)).isoformat() + "Z",
+        "today": today_start_utc.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "yesterday": (today_start_utc - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "last2": (today_start_utc - timedelta(days=2)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "last7": (today_start_utc - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "last30": (today_start_utc - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "all": "2020-01-01T00:00:00Z"
     }
 
