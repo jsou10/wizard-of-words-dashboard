@@ -376,10 +376,12 @@ def build_dashboard_html():
         campaigns = fetch_fb_insights(since, until)
         fb_by_event = {}
         for c in campaigns:
-            ev_num = extract_event_num_from_fb(c.get("campaign_name", ""))
+            cname = c.get("campaign_name", "")
+            ev_num = extract_event_num_from_fb(cname)
             if ev_num is None:
                 continue
-            key = str(ev_num)
+            brand_prefix = "GX" if "gifterx" in cname.lower() else "WoW"
+            key = f"{brand_prefix}-{ev_num}"
             spend = float(c.get("spend", 0))
             impressions = int(c.get("impressions", 0))
             reach = int(c.get("reach", 0))
@@ -423,9 +425,10 @@ def build_dashboard_html():
             paging = page_data.get("paging", {})
 
         for c in daily_data:
-            if not is_relevant_campaign(c.get("campaign_name", "")):
+            cname = c.get("campaign_name", "")
+            if not is_relevant_campaign(cname):
                 continue
-            ev_num = extract_event_num_from_fb(c.get("campaign_name", ""))
+            ev_num = extract_event_num_from_fb(cname)
             if ev_num is None:
                 continue
             purchases = 0
@@ -433,9 +436,10 @@ def build_dashboard_html():
                 if a.get("action_type") == "omni_purchase":
                     purchases = int(a.get("value", 0))
                     break
+            brand_prefix = "GX" if "gifterx" in cname.lower() else "WoW"
             fb_daily.append({
                 "date": c.get("date_start", ""),
-                "event_num": str(ev_num),
+                "event_num": f"{brand_prefix}-{ev_num}",
                 "spend": float(c.get("spend", 0)),
                 "impressions": int(c.get("impressions", 0)),
                 "reach": int(c.get("reach", 0)),
@@ -749,7 +753,8 @@ def build_dashboard_html():
             const dateStr = d.toLocaleDateString('en-US',{{weekday:'short',month:'short',day:'numeric',year:'numeric'}});
             const isCompleted = e.event_status === 'completed' || e.event_status === 'ended';
 
-            const fbd = e.event_num ? (fb[String(e.event_num)] || null) : null;
+            const fbKey = e.event_num ? (e.brand + '-' + e.event_num) : null;
+            const fbd = fbKey ? (fb[fbKey] || null) : null;
             const spend = fbd ? fbd.spend : 0;
             const metaTickets = fbd ? fbd.purchases : 0;
             const overviewCpt = pTickets.length>0&&spend>0 ? spend/pTickets.length : 0;
