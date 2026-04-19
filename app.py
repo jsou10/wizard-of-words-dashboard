@@ -36,6 +36,7 @@ CITY_NORMALIZE = {
     "new york city": "New York",
     "st. pete's/tampa": "Tampa",
     "st pete's/tampa": "Tampa",
+    "washington dc": "Washington",
 }
 
 def normalize_city(city):
@@ -254,6 +255,8 @@ def build_dashboard_html():
         "Houston": {"num": 9, "brand": "WoW"},
         "Dallas": {"num": 10, "brand": "WoW"},
         "New York": {"num": 11, "brand": "WoW"},
+        "Washington": {"num": 13, "brand": "WoW"},
+        "Toronto": {"num": 12, "brand": "WoW"},
     }
     # GifterX events are always Miami — handled via event_num from EB name
     for city, info in known_events.items():
