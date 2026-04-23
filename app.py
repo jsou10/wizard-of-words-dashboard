@@ -40,7 +40,11 @@ CITY_NORMALIZE = {
 }
 
 def normalize_city(city):
-    return CITY_NORMALIZE.get(city.lower().strip(), city)
+    c = city.strip()
+    # Strip trailing state abbreviation (e.g. "Boston, MA" -> "Boston")
+    c = re.sub(r',\s*[A-Z]{2}$', '', c)
+    lower = c.lower().strip()
+    return CITY_NORMALIZE.get(lower, c)
 
 # ====== FETCH EVENTBRITE DATA ======
 def fetch_eb_events():
