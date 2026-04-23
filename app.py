@@ -104,7 +104,7 @@ def fetch_eb_attendees(event_id):
 def is_relevant_campaign(name):
     """Check if a FB campaign belongs to Wizard of Words or GifterX."""
     lower = name.lower()
-    return "wizard of words" in lower or "gifterx" in lower
+    return "wizard of words" in lower or "gifterx" in lower or re.match(r'wow\s+\d+', lower)
 
 def fetch_fb_insights(since_date, until_date):
     global _api_errors
@@ -186,11 +186,20 @@ def extract_event_num_from_eb(event_name):
 
 def extract_event_num_from_fb(campaign_name):
     """Extract event number from FB campaign name."""
-    m = re.search(r'(?:V\d+\s+)?(?:Wizard\s+of\s+Words|GifterX)\s+(\d+)', campaign_name, re.I)
+    m = re.search(r'(?:V\d+\s+)?(?:Wizard\s+of\s+Words|GifterX|WOW)\s+(\d+)', campaign_name, re.I)
     return int(m.group(1)) if m else None
 
 def extract_city_from_fb(campaign_name):
-    """Extract city from FB campaign name like 'JSC - Wizard of Words 9 Houston TX 2026 MAR 12-13'."""
+    """Extract city from FB campaign name.
+    Handles formats like:
+    - 'JSC - Wizard of Words 9 Houston TX 2026 MAR 12-13'
+    - 'WOW 14 Boston - IMG 12 Speak On Stage With Celebrities'
+    """
+    # New short format: "WOW 14 Boston - ..."
+    m = re.search(r'WOW\s+\d+\s+(.+?)\s*-\s', campaign_name, re.I)
+    if m:
+        return m.group(1).strip()
+    # Original long format: "Wizard of Words 9 Houston TX 2026 MAR"
     m = re.search(
         r'(?:V\d+\s+)?(?:Wizard\s+of\s+Words|GifterX)\s+\d+\s+(?:VIRTUAL\s+)?(.+?)\s+[A-Z]{2}\s+\d{4}',
         campaign_name
