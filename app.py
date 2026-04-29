@@ -204,8 +204,9 @@ def extract_city_from_fb(campaign_name):
     if m:
         return m.group(1).strip()
     # Original long format: "Wizard of Words 9 Houston TX 2026 MAR"
+    # Also handles newer format without state code: "Wizard of Words 16 Miami 2026 JUNE 25"
     m = re.search(
-        r'(?:V\d+\s+)?(?:Wizard\s+of\s+Words|GifterX)\s+\d+\s+(?:VIRTUAL\s+)?(.+?)\s+[A-Z]{2}\s+\d{4}',
+        r'(?:V\d+\s+)?(?:Wizard\s+of\s+Words|GifterX)\s+\d+\s+(?:VIRTUAL\s+)?(.+?)\s+(?:[A-Z]{2}\s+)?\d{4}',
         campaign_name
     )
     return m.group(1).strip() if m else None
