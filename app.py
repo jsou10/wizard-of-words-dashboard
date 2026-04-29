@@ -211,53 +211,93 @@ def extract_city_from_fb(campaign_name):
     return m.group(1).strip() if m else None
 
 def fetch_fb_event_meta():
-    """Build city → {num, brand} mapping from FB campaign names."""
+    """Build event_num → {city, brand} AND city → {num, brand} mappings from FB campaign names.
+    Returns (meta_by_num, meta_by_city) so repeat cities don't collide."""
     global _api_errors
     url = f"https://graph.facebook.com/v25.0/act_{FB_AD_ACCOUNT}/campaigns"
     params = {"fields": "name,status", "limit": 100, "access_token": FB_TOKEN}
-    res = requests.get(url, params=params)
-    if res.status_code != 200:
-        try:
-            err_data = res.json()
-            err_msg = err_data.get("error", {}).get("message", f"HTTP {res.status_code}")
-            err_code = err_data.get("error", {}).get("code", "")
-        except Exception:
-            err_msg = f"HTTP {res.status_code}"
-            err_code = ""
-        error_str = f"FB Campaigns API error: {err_msg}"
-        if err_code == 190:
-            error_str = "Facebook access token has EXPIRED. Please generate a new token in Meta Business Settings and update it in Render environment variables."
-        if error_str not in _api_errors:
-            _api_errors.append(error_str)
-        return {}
-    meta = {}
-    for c in res.json().get("data", []):
-        name = c.get("name", "")
-        if not is_relevant_campaign(name):
-            continue
-        num = extract_event_num_from_fb(name)
-        if not num:
-            continue
-        city = extract_city_from_fb(name)
-        if not city:
-            continue
-        brand = "GX" if "gifterx" in name.lower() else "WoW"
-        # Only use ACTIVE campaigns for meta (most current mapping)
-        if c.get("status") == "ACTIVE":
-            meta[normalize_city(city)] = {"num": num, "brand": brand}
-        # Also store if city not yet mapped (from paused campaigns)
-        elif normalize_city(city) not in meta:
-            meta[normalize_city(city)] = {"num": num, "brand": brand}
-    return meta
+    meta_by_num = {}
+    meta_by_city = {}
+    page_count = 0
+    while True:
+        res = requests.get(url, params=params)
+        if res.status_code != 200:
+            try:
+                err_data = res.json()
+                err_msg = err_data.get("error", {}).get("message", f"HTTP {res.status_code}")
+                err_code = err_data.get("error", {}).get("code", "")
+            except Exception:
+                err_msg = f"HTTP {res.status_code}"
+                err_code = ""
+            error_str = f"FB Campaigns API error: {err_msg}"
+            if err_code == 190:
+                error_str = "Facebook access token has EXPIRED. Please generate a new token in Meta Business Settings and update it in Render environment variables."
+            if error_str not in _api_errors:
+                _api_errors.append(error_str)
+            break
+        data = res.json()
+        for c in data.get("data", []):
+            name = c.get("name", "")
+            if not is_relevant_campaign(name):
+                continue
+            num = extract_event_num_from_fb(name)
+            if not num:
+                continue
+            city = extract_city_from_fb(name)
+            if not city:
+                continue
+            brand = "GX" if "gifterx" in name.lower() else "WoW"
+            norm = normalize_city(city)
+            # Primary: map by event number (no collisions)
+            if num not in meta_by_num:
+                meta_by_num[num] = {"city": norm, "brand": brand}
+            elif c.get("status") == "ACTIVE":
+                meta_by_num[num] = {"city": norm, "brand": brand}
+            # Secondary: map by city (for EB events without numbers in their name)
+            # ACTIVE campaigns take priority
+            if c.get("status") == "ACTIVE":
+                meta_by_city[norm] = {"num": num, "brand": brand}
+            elif norm not in meta_by_city:
+                meta_by_city[norm] = {"num": num, "brand": brand}
+        # Pagination
+        paging = data.get("paging", {})
+        if paging.get("next"):
+            url = paging["next"]
+            params = {}  # next URL includes all params
+            page_count += 1
+            if page_count >= 5:
+                break
+        else:
+            break
+    return meta_by_num, meta_by_city
 
 def build_dashboard_html():
     """Build the full dashboard HTML with live data."""
     global _api_errors
     _api_errors = []  # Reset errors for this build
-    event_meta = fetch_fb_event_meta()
+    meta_by_num, meta_by_city = fetch_fb_event_meta()
 
     # Fallback mapping if FB meta API fails to return data
-    known_events = {
+    # keyed by event number → {city, brand}
+    known_events_by_num = {
+        1: {"city": "Miami", "brand": "WoW"},
+        3: {"city": "Orlando", "brand": "WoW"},
+        4: {"city": "Tampa", "brand": "WoW"},
+        5: {"city": "West Palm Beach", "brand": "WoW"},
+        6: {"city": "Jacksonville", "brand": "WoW"},
+        7: {"city": "Fort Lauderdale", "brand": "WoW"},
+        8: {"city": "Atlanta", "brand": "WoW"},
+        9: {"city": "Houston", "brand": "WoW"},
+        10: {"city": "Dallas", "brand": "WoW"},
+        11: {"city": "New York", "brand": "WoW"},
+        12: {"city": "Toronto", "brand": "WoW"},
+        13: {"city": "Washington", "brand": "WoW"},
+        14: {"city": "Boston", "brand": "WoW"},
+        15: {"city": "Chicago", "brand": "WoW"},
+        16: {"city": "Miami", "brand": "WoW"},
+    }
+    # Also keep a city-based fallback for very old events without numbers
+    known_events_by_city = {
         "Miami": {"num": 1, "brand": "WoW"},
         "Fort Lauderdale": {"num": 7, "brand": "WoW"},
         "Orlando": {"num": 3, "brand": "WoW"},
@@ -271,10 +311,13 @@ def build_dashboard_html():
         "Washington": {"num": 13, "brand": "WoW"},
         "Toronto": {"num": 12, "brand": "WoW"},
     }
-    # GifterX events are always Miami — handled via event_num from EB name
-    for city, info in known_events.items():
-        if city not in event_meta:
-            event_meta[city] = info
+    # Merge fallbacks into meta dicts (don't overwrite API data)
+    for num, info in known_events_by_num.items():
+        if num not in meta_by_num:
+            meta_by_num[num] = info
+    for city, info in known_events_by_city.items():
+        if city not in meta_by_city:
+            meta_by_city[city] = info
 
     events = fetch_eb_events()
 
@@ -342,17 +385,22 @@ def build_dashboard_html():
                 "city": city
             })
 
-        # Determine event number: first try from EB name, then from FB meta
+        # Determine event number: first try from EB name, then from FB meta by number, then by city
         event_num = extract_event_num_from_eb(name)
         norm_city = normalize_city(city)
-        if event_num is None:
-            meta = event_meta.get(norm_city, {})
-            event_num = meta.get("num", 0)
-            if not brand or brand == "WoW":
-                brand = meta.get("brand", "WoW")
+        if event_num is not None:
+            # Got number from EB name \u2014 look up city/brand from meta_by_num
+            meta = meta_by_num.get(event_num, {})
+            if meta.get("city"):
+                norm_city = meta["city"]
+            if meta.get("brand"):
+                brand = meta["brand"]
         else:
-            # If we have num from EB, still check meta for brand confirmation
-            meta = event_meta.get(norm_city, {})
+            # No number in EB name \u2014 fall back to city-based lookup
+            meta = meta_by_city.get(norm_city, {})
+            event_num = meta.get("num", 0)
+            if meta.get("brand"):
+                brand = meta["brand"]
 
         display_city = f"{brand} {event_num} \u2013 {norm_city}" if event_num else f"{brand} \u2013 {city}"
 
