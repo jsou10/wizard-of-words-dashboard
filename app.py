@@ -1048,6 +1048,48 @@ def debug_events():
     except Exception as e:
         return Response(json.dumps({"error": str(e)}), content_type="application/json"), 500
 
+@app.route("/debug/processed")
+def debug_processed():
+    """Show how each EB event gets processed (event_num, brand, display_city, status)."""
+    try:
+        meta_by_num, meta_by_city = fetch_fb_event_meta()
+        events = fetch_eb_events()
+        result = []
+        for event in events:
+            eid = event["id"]
+            name = event["name"]["text"]
+            city = extract_city(name)
+            brand = extract_brand(name)
+            event_status = event.get("status", "")
+            start_date = event["start"]["local"]
+            event_num = extract_event_num_from_eb(name)
+            norm_city = normalize_city(city)
+            num_source = "eb_name" if event_num is not None else "meta_by_city"
+            if event_num is not None:
+                meta = meta_by_num.get(event_num, {})
+                if meta.get("brand"):
+                    brand = meta["brand"]
+            else:
+                meta = meta_by_city.get(norm_city, {})
+                event_num = meta.get("num", 0)
+                if meta.get("brand"):
+                    brand = meta["brand"]
+            result.append({
+                "eb_name": name,
+                "eb_status": event_status,
+                "start_date": start_date,
+                "extracted_city": city,
+                "norm_city": norm_city,
+                "event_num": event_num,
+                "num_source": num_source,
+                "brand": brand,
+                "fb_key": f"{brand}-{event_num}" if event_num else None,
+            })
+        return Response(json.dumps({"meta_by_city": meta_by_city, "events": result}, indent=2), content_type="application/json")
+    except Exception as e:
+        import traceback
+        return Response(json.dumps({"error": str(e), "traceback": traceback.format_exc()}), content_type="application/json"), 500
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
