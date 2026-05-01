@@ -823,13 +823,16 @@ def build_dashboard_html():
             const isCompleted = e.event_status === 'completed' || e.event_status === 'ended';
 
             const fbKey = e.event_num ? (e.brand + '-' + e.event_num) : null;
-            const fbd = fbKey ? (fb[fbKey] || null) : null;
+            // Completed events always use "all time" FB data so lifetime spend shows
+            const fbSource = isCompleted ? (fbData['all'] || {{}}) : fb;
+            const fbd = fbKey ? (fbSource[fbKey] || null) : null;
             const spend = fbd ? fbd.spend : 0;
             const metaTickets = fbd ? fbd.purchases : 0;
             const linkClicks = fbd ? (fbd.link_clicks || 0) : 0;
-            const overviewCpt = pTickets.length>0&&spend>0 ? spend/pTickets.length : 0;
+            const ebTicketsForCalc = isCompleted ? e.total_sold : pTickets.length;
+            const overviewCpt = ebTicketsForCalc>0&&spend>0 ? spend/ebTicketsForCalc : 0;
             const metaCpt = metaTickets>0&&spend>0 ? spend/metaTickets : 0;
-            const convRate = linkClicks>0 ? (pTickets.length/linkClicks*100) : 0;
+            const convRate = linkClicks>0 ? (ebTicketsForCalc/linkClicks*100) : 0;
 
             totalPeriodTickets += pTickets.length;
             totalMetaTickets += metaTickets;
@@ -851,7 +854,7 @@ def build_dashboard_html():
             const metaCptColor = metaCpt>300?'#f87171':metaCpt>200?'#fbbf24':metaCpt>0?'#60a5fa':'#94a3b8';
             const rowClass = isCompleted ? 'completed-row' : '';
             const daysDisplay = isCompleted ? '<span style="color:#94a3b8">Past</span>' : (days>0?days+'d':'<span style="color:#f59e0b">TODAY</span>');
-            const periodTicketDisplay = isCompleted ? '<span style="color:#94a3b8" title="Per-period data not available for completed events">'+e.total_sold+'*</span>' : pTickets.length;
+            const periodTicketDisplay = isCompleted ? '<span style="color:#94a3b8" title="Showing all-time totals for completed events">'+e.total_sold+'</span>' : pTickets.length;
 
             const convRateColor = convRate>=5?'#4ade80':convRate>=2?'#fbbf24':convRate>0?'#f87171':'#94a3b8';
             rows += `<tr class="${{rowClass}}">
@@ -875,16 +878,16 @@ def build_dashboard_html():
             const fbPurch = fbd ? fbd.purchases : 0;
             const impr = fbd ? fbd.impressions : 0;
             const reach = fbd ? fbd.reach : 0;
-            const cpt = pTickets.length>0&&spend>0 ? spend/pTickets.length : 0;
+            const cpt = ebTicketsForCalc>0&&spend>0 ? spend/ebTicketsForCalc : 0;
             const roas = spend>0 ? pRev/spend : 0;
 
             const cptColor = cpt>300?'#f87171':cpt>200?'#fbbf24':cpt>0?'#4ade80':'#94a3b8';
             const roasColor = roas>=1?'#4ade80':'#f87171';
-            const cmbConvRate = linkClicks>0 ? (pTickets.length/linkClicks*100) : 0;
+            const cmbConvRate = linkClicks>0 ? (ebTicketsForCalc/linkClicks*100) : 0;
             const cmbConvColor = cmbConvRate>=5?'#4ade80':cmbConvRate>=2?'#fbbf24':cmbConvRate>0?'#f87171':'#94a3b8';
             cmbRows += `<tr class="${{rowClass}}">
                 <td class="cn"><span class="${{brandClass}}">${{e.brand}}</span> ${{e.display_city}}</td>
-                <td style="font-weight:600;color:#4ade80">${{isCompleted?e.total_sold+'*':pTickets.length}}</td>
+                <td style="font-weight:600;color:#4ade80">${{isCompleted?e.total_sold:pTickets.length}}</td>
                 <td style="color:#4ade80">${{isCompleted?'&#8212;':'$'+fmt(pRev)}}</td>
                 <td style="color:#f59e0b">$${{fmt(spend)}}</td>
                 <td style="color:#60a5fa">${{linkClicks>0?linkClicks.toLocaleString():'&#8212;'}}</td>
