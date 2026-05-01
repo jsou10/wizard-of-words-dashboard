@@ -153,8 +153,13 @@ def fetch_fb_insights(since_date, until_date):
 # ====== HELPERS ======
 def extract_city(event_name):
     """Extract city from Eventbrite event name."""
-    # GifterX Talks: "GifterX Talks 15 - Miami"
+    # GifterX Talks with number: "GifterX Talks 15 - Miami"
     m = re.match(r'GifterX\s+Talks\s+\d+\s*-\s*(.+)', event_name, re.I)
+    if m:
+        return m.group(1).strip()
+
+    # GifterX Talks without number: "GifterX Talks Miami- 4th Anniversary..."
+    m = re.match(r'GifterX\s+Talks\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)', event_name)
     if m:
         return m.group(1).strip()
 
@@ -165,7 +170,8 @@ def extract_city(event_name):
     m = re.match(r'"?Wizard\s+of\s+Words(?:\s+\d+)?"?\s+(.+?):\s', event_name, re.I)
     if m:
         city = m.group(1).strip().strip('"').strip()
-        if city:
+        # Filter out cases where "city" is actually a subtitle (e.g. "1" or "Speak to Sell")
+        if city and not city.isdigit() and len(city) < 40:
             return city
 
     # Older format without city: "Wizard of Words 3: Speak to Sell..."
@@ -389,13 +395,18 @@ def build_dashboard_html():
         # Determine event number: first try from EB name, then from FB meta by number, then by city
         event_num = extract_event_num_from_eb(name)
         norm_city = normalize_city(city)
+        eb_brand = brand  # Preserve the brand extracted directly from the EB event name
         if event_num is not None:
             # Got number from EB name \u2014 look up city/brand from meta_by_num
+            # BUT only override brand if the EB name didn't already identify it as GifterX
+            # (GX event numbers overlap with WoW numbers, so FB meta would wrongly reassign brand)
             meta = meta_by_num.get(event_num, {})
-            if meta.get("city"):
-                norm_city = meta["city"]
-            if meta.get("brand"):
-                brand = meta["brand"]
+            if eb_brand != "GX":
+                # Only use FB meta brand for WoW events (GX brand from EB name takes priority)
+                if meta.get("city"):
+                    norm_city = meta["city"]
+                if meta.get("brand"):
+                    brand = meta["brand"]
         else:
             # No number in EB name \u2014 fall back to city-based lookup
             meta = meta_by_city.get(norm_city, {})
