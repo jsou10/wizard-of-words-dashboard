@@ -1020,6 +1020,34 @@ def debug():
 
     return Response(json.dumps(results, indent=2), content_type="application/json")
 
+@app.route("/debug/events")
+def debug_events():
+    """List all EB events with their statuses for diagnostics."""
+    try:
+        all_events = []
+        page = 1
+        while page <= 10:
+            url = f"https://www.eventbriteapi.com/v3/organizations/{EB_ORG_ID}/events/"
+            params = {"status": "all", "token": EB_TOKEN, "page": page}
+            res = requests.get(url, params=params, timeout=15)
+            res.raise_for_status()
+            data = res.json()
+            for e in data.get("events", []):
+                all_events.append({
+                    "id": e.get("id"),
+                    "name": e.get("name", {}).get("text", ""),
+                    "status": e.get("status"),
+                    "start": e.get("start", {}).get("local", ""),
+                    "end": e.get("end", {}).get("local", ""),
+                    "capacity": e.get("capacity"),
+                })
+            if not data.get("pagination", {}).get("has_more_items"):
+                break
+            page += 1
+        return Response(json.dumps({"total": len(all_events), "events": all_events}, indent=2), content_type="application/json")
+    except Exception as e:
+        return Response(json.dumps({"error": str(e)}), content_type="application/json"), 500
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
