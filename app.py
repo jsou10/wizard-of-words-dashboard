@@ -448,17 +448,20 @@ def build_dashboard_html():
             impressions = int(c.get("impressions", 0))
             reach = int(c.get("reach", 0))
             purchases = 0
+            link_clicks = 0
             for a in c.get("actions", []):
                 if a.get("action_type") == "omni_purchase":
                     purchases = int(a.get("value", 0))
-                    break
+                if a.get("action_type") == "link_click":
+                    link_clicks = int(a.get("value", 0))
             if key in fb_by_event:
                 fb_by_event[key]["spend"] += spend
                 fb_by_event[key]["impressions"] += impressions
                 fb_by_event[key]["reach"] += reach
                 fb_by_event[key]["purchases"] += purchases
+                fb_by_event[key]["link_clicks"] += link_clicks
             else:
-                fb_by_event[key] = {"spend": spend, "impressions": impressions, "reach": reach, "purchases": purchases}
+                fb_by_event[key] = {"spend": spend, "impressions": impressions, "reach": reach, "purchases": purchases, "link_clicks": link_clicks}
         fb_periods[period_name] = fb_by_event
 
     # Fetch daily FB data for custom date range support
@@ -494,10 +497,12 @@ def build_dashboard_html():
             if ev_num is None:
                 continue
             purchases = 0
+            link_clicks = 0
             for a in c.get("actions", []):
                 if a.get("action_type") == "omni_purchase":
                     purchases = int(a.get("value", 0))
-                    break
+                if a.get("action_type") == "link_click":
+                    link_clicks = int(a.get("value", 0))
             brand_prefix = "GX" if "gifterx" in cname.lower() else "WoW"
             fb_daily.append({
                 "date": c.get("date_start", ""),
@@ -505,7 +510,8 @@ def build_dashboard_html():
                 "spend": float(c.get("spend", 0)),
                 "impressions": int(c.get("impressions", 0)),
                 "reach": int(c.get("reach", 0)),
-                "purchases": purchases
+                "purchases": purchases,
+                "link_clicks": link_clicks
             })
 
     # Sort: live/started first (by start_date asc), then completed (by start_date desc)
@@ -636,7 +642,7 @@ def build_dashboard_html():
         <div class="cards" id="summaryCards"></div>
         <div class="alerts" id="alertBox"></div>
         <div class="tbl-wrap"><table><thead><tr>
-            <th>Event</th><th>Event Date</th><th>Days Out</th><th>Amount Spent</th><th>Tickets Sold (EB)</th><th>Cost/Ticket (EB)</th><th>Tickets Sold (Meta)</th><th>Cost/Ticket (Meta)</th><th>Total Sold</th><th>Capacity</th><th>Fill %</th><th>Period Revenue</th><th>Status</th>
+            <th>Event</th><th>Event Date</th><th>Days Out</th><th>Amount Spent</th><th>Link Clicks</th><th>Tickets Sold (EB)</th><th>Conv Rate</th><th>Cost/Ticket (EB)</th><th>Tickets Sold (Meta)</th><th>Cost/Ticket (Meta)</th><th>Total Sold</th><th>Capacity</th><th>Fill %</th><th>Period Revenue</th><th>Status</th>
         </tr></thead><tbody id="tblBody"></tbody></table></div>
     </div>
     <div class="tpanel" id="p-combined">
@@ -645,7 +651,7 @@ def build_dashboard_html():
             <p style="font-size:13px;color:#94a3b8;margin-bottom:16px">EB = source of truth for sales (no attribution delay). Meta = source of truth for spend.</p>
         </div>
         <div class="tbl-wrap"><table><thead><tr>
-            <th>Event</th><th>Tickets Sold (EB)</th><th>Revenue</th><th>Ad Spend</th><th>Cost/Ticket (EB)</th><th>ROAS</th><th>Tickets Sold (Meta)</th><th>Impressions</th><th>Reach</th>
+            <th>Event</th><th>Tickets Sold (EB)</th><th>Revenue</th><th>Ad Spend</th><th>Link Clicks</th><th>Conv Rate</th><th>Cost/Ticket (EB)</th><th>ROAS</th><th>Tickets Sold (Meta)</th><th>Impressions</th><th>Reach</th>
         </tr></thead><tbody id="cmbBody"></tbody></table></div>
     </div>
     <div class="tpanel" id="p-orders">
@@ -782,11 +788,12 @@ def build_dashboard_html():
         fbDaily.forEach(row => {{
             if (row.date >= s && row.date <= e) {{
                 const key = row.event_num;
-                if (!result[key]) result[key] = {{spend:0, impressions:0, reach:0, purchases:0}};
+                if (!result[key]) result[key] = {{spend:0, impressions:0, reach:0, purchases:0, link_clicks:0}};
                 result[key].spend += row.spend;
                 result[key].impressions += row.impressions;
                 result[key].reach += row.reach;
                 result[key].purchases += row.purchases;
+                result[key].link_clicks += (row.link_clicks || 0);
             }}
         }});
         return result;
@@ -794,7 +801,7 @@ def build_dashboard_html():
 
     function render() {{
         const fb = getFbForPeriod();
-        let totalPeriodTickets=0, totalMetaTickets=0, totalPeriodRev=0, totalSold=0, totalCap=0, totalSpend=0, drySpells=0;
+        let totalPeriodTickets=0, totalMetaTickets=0, totalPeriodRev=0, totalSold=0, totalCap=0, totalSpend=0, totalLinkClicks=0, drySpells=0;
         let rows='', cmbRows='', alerts=[];
         let lastSection = '';
 
@@ -802,8 +809,8 @@ def build_dashboard_html():
             // Add section separator between active and completed events
             const section = (e.event_status === 'live' || e.event_status === 'started') ? 'active' : 'completed';
             if (section !== lastSection && lastSection !== '') {{
-                rows += '<tr class="separator-row"><td colspan="13">&#x2500;&#x2500; Completed Events &#x2500;&#x2500;</td></tr>';
-                cmbRows += '<tr class="separator-row"><td colspan="9">&#x2500;&#x2500; Completed Events &#x2500;&#x2500;</td></tr>';
+                rows += '<tr class="separator-row"><td colspan="15">&#x2500;&#x2500; Completed Events &#x2500;&#x2500;</td></tr>';
+                cmbRows += '<tr class="separator-row"><td colspan="11">&#x2500;&#x2500; Completed Events &#x2500;&#x2500;</td></tr>';
             }}
             lastSection = section;
 
@@ -819,8 +826,10 @@ def build_dashboard_html():
             const fbd = fbKey ? (fb[fbKey] || null) : null;
             const spend = fbd ? fbd.spend : 0;
             const metaTickets = fbd ? fbd.purchases : 0;
+            const linkClicks = fbd ? (fbd.link_clicks || 0) : 0;
             const overviewCpt = pTickets.length>0&&spend>0 ? spend/pTickets.length : 0;
             const metaCpt = metaTickets>0&&spend>0 ? spend/metaTickets : 0;
+            const convRate = linkClicks>0 ? (pTickets.length/linkClicks*100) : 0;
 
             totalPeriodTickets += pTickets.length;
             totalMetaTickets += metaTickets;
@@ -828,6 +837,7 @@ def build_dashboard_html():
             totalSold += e.total_sold;
             totalCap += e.capacity;
             totalSpend += spend;
+            totalLinkClicks += linkClicks;
 
             if(!isCompleted && days>2 && e.total_sold>5) {{
                 const recent = e.tickets.filter(t=>(new Date()-new Date(t.created))<48*3600000);
@@ -843,12 +853,15 @@ def build_dashboard_html():
             const daysDisplay = isCompleted ? '<span style="color:#94a3b8">Past</span>' : (days>0?days+'d':'<span style="color:#f59e0b">TODAY</span>');
             const periodTicketDisplay = isCompleted ? '<span style="color:#94a3b8" title="Per-period data not available for completed events">'+e.total_sold+'*</span>' : pTickets.length;
 
+            const convRateColor = convRate>=5?'#4ade80':convRate>=2?'#fbbf24':convRate>0?'#f87171':'#94a3b8';
             rows += `<tr class="${{rowClass}}">
                 <td class="cn"><span class="${{brandClass}}">${{e.brand}}</span> ${{e.display_city}}</td>
                 <td style="color:#94a3b8">${{dateStr}}</td>
                 <td>${{daysDisplay}}</td>
                 <td style="color:#f59e0b">${{spend>0?'$'+fmt(spend):'$0.00'}}</td>
+                <td style="color:#60a5fa">${{linkClicks>0?linkClicks.toLocaleString():'&#8212;'}}</td>
                 <td style="font-weight:600;color:#4ade80">${{periodTicketDisplay}}</td>
+                <td style="font-weight:600;color:${{convRateColor}}">${{convRate>0?convRate.toFixed(1)+'%':'&#8212;'}}</td>
                 <td style="font-weight:600;color:${{ebCptColor}}">${{overviewCpt>0?'$'+fmt(overviewCpt):'&#8212;'}}</td>
                 <td style="color:#60a5fa">${{metaTickets}}</td>
                 <td style="font-weight:600;color:${{metaCptColor}}">${{metaCpt>0?'$'+fmt(metaCpt):'&#8212;'}}</td>
@@ -867,11 +880,15 @@ def build_dashboard_html():
 
             const cptColor = cpt>300?'#f87171':cpt>200?'#fbbf24':cpt>0?'#4ade80':'#94a3b8';
             const roasColor = roas>=1?'#4ade80':'#f87171';
+            const cmbConvRate = linkClicks>0 ? (pTickets.length/linkClicks*100) : 0;
+            const cmbConvColor = cmbConvRate>=5?'#4ade80':cmbConvRate>=2?'#fbbf24':cmbConvRate>0?'#f87171':'#94a3b8';
             cmbRows += `<tr class="${{rowClass}}">
                 <td class="cn"><span class="${{brandClass}}">${{e.brand}}</span> ${{e.display_city}}</td>
                 <td style="font-weight:600;color:#4ade80">${{isCompleted?e.total_sold+'*':pTickets.length}}</td>
                 <td style="color:#4ade80">${{isCompleted?'&#8212;':'$'+fmt(pRev)}}</td>
                 <td style="color:#f59e0b">$${{fmt(spend)}}</td>
+                <td style="color:#60a5fa">${{linkClicks>0?linkClicks.toLocaleString():'&#8212;'}}</td>
+                <td style="font-weight:600;color:${{cmbConvColor}}">${{cmbConvRate>0?cmbConvRate.toFixed(1)+'%':'&#8212;'}}</td>
                 <td style="font-weight:700;color:${{cptColor}}">${{cpt>0?'$'+fmt(cpt):'&#8212;'}}</td>
                 <td style="color:${{roasColor}}">${{roas>0?roas.toFixed(2)+'x':'&#8212;'}}</td>
                 <td style="color:#94a3b8">${{fbPurch}}</td>
@@ -882,11 +899,15 @@ def build_dashboard_html():
 
         const tCpt = totalPeriodTickets>0&&totalSpend>0 ? totalSpend/totalPeriodTickets : 0;
         const tRoas = totalSpend>0 ? totalPeriodRev/totalSpend : 0;
+        const tConvRate = totalLinkClicks>0 ? (totalPeriodTickets/totalLinkClicks*100) : 0;
+        const tConvColor = tConvRate>=5?'#4ade80':tConvRate>=2?'#fbbf24':tConvRate>0?'#f87171':'#94a3b8';
         cmbRows += `<tr class="totrow">
             <td>TOTALS</td>
             <td style="color:#4ade80">${{totalPeriodTickets}}</td>
             <td style="color:#4ade80">$${{fmt(totalPeriodRev)}}</td>
             <td>$${{fmt(totalSpend)}}</td>
+            <td style="color:#60a5fa">${{totalLinkClicks>0?totalLinkClicks.toLocaleString():'&#8212;'}}</td>
+            <td style="font-weight:600;color:${{tConvColor}}">${{tConvRate>0?tConvRate.toFixed(1)+'%':'&#8212;'}}</td>
             <td style="color:${{tCpt>300?'#f87171':tCpt>200?'#fbbf24':'#4ade80'}}">${{tCpt>0?'$'+fmt(tCpt):'&#8212;'}}</td>
             <td style="color:${{tRoas>=1?'#4ade80':'#f87171'}}">${{tRoas>0?tRoas.toFixed(2)+'x':'&#8212;'}}</td>
             <td></td><td></td><td></td>
