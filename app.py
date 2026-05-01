@@ -1076,10 +1076,12 @@ def debug_processed():
             event_num = extract_event_num_from_eb(name)
             norm_city = normalize_city(city)
             num_source = "eb_name" if event_num is not None else "meta_by_city"
+            eb_brand = brand
             if event_num is not None:
                 meta = meta_by_num.get(event_num, {})
-                if meta.get("brand"):
-                    brand = meta["brand"]
+                if eb_brand != "GX":
+                    if meta.get("brand"):
+                        brand = meta["brand"]
             else:
                 meta = meta_by_city.get(norm_city, {})
                 event_num = meta.get("num", 0)
