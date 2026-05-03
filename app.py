@@ -672,9 +672,16 @@ def build_dashboard_html():
                     brand = meta["brand"]
         else:
             meta = meta_by_city.get(norm_city, {})
-            event_num = meta.get("num", 0)
-            if meta.get("brand"):
-                brand = meta["brand"]
+            # Only use city fallback if brands match — don't let a GX event
+            # inherit a WoW event number (or vice versa) just because they
+            # share a city (e.g. GifterX Miami vs WoW Miami)
+            meta_brand = meta.get("brand", eb_brand)
+            if meta_brand == eb_brand:
+                event_num = meta.get("num", 0)
+                if meta.get("brand"):
+                    brand = meta["brand"]
+            else:
+                event_num = 0
 
         display_city = f"{brand} {event_num} – {norm_city}" if event_num else f"{brand} – {city}"
 
@@ -1422,9 +1429,13 @@ def debug_processed():
                         brand = meta["brand"]
             else:
                 meta = meta_by_city.get(norm_city, {})
-                event_num = meta.get("num", 0)
-                if meta.get("brand"):
-                    brand = meta["brand"]
+                meta_brand = meta.get("brand", eb_brand)
+                if meta_brand == eb_brand:
+                    event_num = meta.get("num", 0)
+                    if meta.get("brand"):
+                        brand = meta["brand"]
+                else:
+                    event_num = 0
             result.append({
                 "eb_name": name,
                 "eb_status": event.get("status", ""),
