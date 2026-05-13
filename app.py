@@ -53,7 +53,7 @@ CACHE_TIME_FILE = "/tmp/wow_dashboard_cache_time.txt"
 # Track API errors for dashboard display
 _api_errors = []
 
-BUILD_TIMEOUT = 480  # 8 min max — EB API is slow with rate limits
+BUILD_TIMEOUT = int(os.environ.get("BUILD_TIMEOUT", "900"))  # 15 min default, overridable via env var
 _build_lock = threading.Lock()  # Prevent multiple simultaneous builds
 
 # City name normalization (EB name → canonical name matching FB)
