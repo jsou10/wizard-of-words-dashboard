@@ -357,6 +357,22 @@ def fetch_fb_insights(since_date, until_date):
             all_results.extend(data2.get("data", []))
             paging2 = data2.get("paging", {})
 
+    # Also fetch GifterX campaigns (their names contain neither "Wizard of Words" nor "WOW")
+    params3 = dict(params)
+    params3["filtering"] = json.dumps([{"field": "campaign.name", "operator": "CONTAIN", "value": "GifterX"}])
+    res3 = requests.get(url, params=params3, timeout=(10, 30))
+    if res3.status_code == 200:
+        data3 = res3.json()
+        all_results.extend(data3.get("data", []))
+        paging3 = data3.get("paging", {})
+        while paging3.get("next"):
+            res3 = requests.get(paging3["next"], timeout=(10, 30))
+            if res3.status_code != 200:
+                break
+            data3 = res3.json()
+            all_results.extend(data3.get("data", []))
+            paging3 = data3.get("paging", {})
+
     # Dedupe by campaign_id (in case both filters match the same campaign)
     seen = set()
     deduped = []
@@ -414,18 +430,27 @@ def extract_event_num_from_fb(campaign_name):
     m = re.search(r'(?:V\d+\s+)?(?:Wizard\s+of\s+Words|GifterX|WOW)\s+(\d+)', campaign_name, re.I)
     return int(m.group(1)) if m else None
 
+def _clean_city(raw):
+    """Strip parenthetical suffixes and version tags from an extracted city."""
+    s = (raw or "").strip()
+    # Drop trailing "(...)" group: "Miami (V2 VOLUME)" -> "Miami"
+    s = re.sub(r'\s*\(.*?\)\s*$', '', s)
+    # Drop trailing version/volume tags if not in parens
+    s = re.sub(r'\s+(V\d+|VOLUME|VIRTUAL)(\s+.*)?$', '', s, flags=re.I)
+    return s.strip()
+
 def extract_city_from_fb(campaign_name):
     """Extract city from FB campaign name."""
     # New short format: "WOW 14 Boston - ..."
     m = re.search(r'WOW\s+\d+\s+(.+?)\s*-\s', campaign_name, re.I)
     if m:
-        return m.group(1).strip()
+        return _clean_city(m.group(1))
     # Original long format
     m = re.search(
         r'(?:V\d+\s+)?(?:Wizard\s+of\s+Words|GifterX)\s+\d+\s+(?:VIRTUAL\s+)?(.+?)\s+(?:[A-Z]{2}\s+)?\d{4}',
         campaign_name
     )
-    return m.group(1).strip() if m else None
+    return _clean_city(m.group(1)) if m else None
 
 def fetch_fb_event_meta():
     """Build event_num → {city, brand} AND city → {num, brand} mappings from FB campaign names."""
@@ -468,10 +493,12 @@ def fetch_fb_event_meta():
                 meta_by_num[num] = {"city": norm, "brand": brand}
             elif c.get("status") == "ACTIVE":
                 meta_by_num[num] = {"city": norm, "brand": brand}
+            # Key by (brand, city) so WoW Miami and GX Miami can coexist
+            ck = (brand, norm)
             if c.get("status") == "ACTIVE":
-                meta_by_city[norm] = {"num": num, "brand": brand}
-            elif norm not in meta_by_city:
-                meta_by_city[norm] = {"num": num, "brand": brand}
+                meta_by_city[ck] = {"num": num, "brand": brand}
+            elif ck not in meta_by_city:
+                meta_by_city[ck] = {"num": num, "brand": brand}
         paging = data.get("paging", {})
         if paging.get("next"):
             url = paging["next"]
@@ -522,18 +549,18 @@ def build_dashboard_html():
         16: {"city": "Miami", "brand": "WoW"},
     }
     known_events_by_city = {
-        "Miami": {"num": 1, "brand": "WoW"},
-        "Fort Lauderdale": {"num": 7, "brand": "WoW"},
-        "Orlando": {"num": 3, "brand": "WoW"},
-        "Tampa": {"num": 4, "brand": "WoW"},
-        "West Palm Beach": {"num": 5, "brand": "WoW"},
-        "Jacksonville": {"num": 6, "brand": "WoW"},
-        "Atlanta": {"num": 8, "brand": "WoW"},
-        "Houston": {"num": 9, "brand": "WoW"},
-        "Dallas": {"num": 10, "brand": "WoW"},
-        "New York": {"num": 11, "brand": "WoW"},
-        "Washington": {"num": 13, "brand": "WoW"},
-        "Toronto": {"num": 12, "brand": "WoW"},
+        ("WoW", "Miami"): {"num": 1, "brand": "WoW"},
+        ("WoW", "Fort Lauderdale"): {"num": 7, "brand": "WoW"},
+        ("WoW", "Orlando"): {"num": 3, "brand": "WoW"},
+        ("WoW", "Tampa"): {"num": 4, "brand": "WoW"},
+        ("WoW", "West Palm Beach"): {"num": 5, "brand": "WoW"},
+        ("WoW", "Jacksonville"): {"num": 6, "brand": "WoW"},
+        ("WoW", "Atlanta"): {"num": 8, "brand": "WoW"},
+        ("WoW", "Houston"): {"num": 9, "brand": "WoW"},
+        ("WoW", "Dallas"): {"num": 10, "brand": "WoW"},
+        ("WoW", "New York"): {"num": 11, "brand": "WoW"},
+        ("WoW", "Washington"): {"num": 13, "brand": "WoW"},
+        ("WoW", "Toronto"): {"num": 12, "brand": "WoW"},
     }
     for num, info in known_events_by_num.items():
         if num not in meta_by_num:
@@ -671,17 +698,11 @@ def build_dashboard_html():
                 if meta.get("brand"):
                     brand = meta["brand"]
         else:
-            meta = meta_by_city.get(norm_city, {})
-            # Only use city fallback if brands match — don't let a GX event
-            # inherit a WoW event number (or vice versa) just because they
-            # share a city (e.g. GifterX Miami vs WoW Miami)
-            meta_brand = meta.get("brand", eb_brand)
-            if meta_brand == eb_brand:
-                event_num = meta.get("num", 0)
-                if meta.get("brand"):
-                    brand = meta["brand"]
-            else:
-                event_num = 0
+            # Look up by (brand, city) so WoW Miami and GX Miami don't collide
+            meta = meta_by_city.get((eb_brand, norm_city), {})
+            event_num = meta.get("num", 0)
+            if meta.get("brand"):
+                brand = meta["brand"]
 
         display_city = f"{brand} {event_num} – {norm_city}" if event_num else f"{brand} – {city}"
 
