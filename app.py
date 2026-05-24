@@ -1468,7 +1468,9 @@ def debug_processed():
                 "brand": brand,
                 "fb_key": f"{brand}-{event_num}" if event_num else None,
             })
-        return Response(json.dumps({"meta_by_city": meta_by_city, "events": result}, indent=2), content_type="application/json")
+        # JSON can't serialize tuple keys — flatten "(brand, city)" to "brand | city" for display
+        meta_by_city_display = {f"{k[0]} | {k[1]}" if isinstance(k, tuple) else k: v for k, v in meta_by_city.items()}
+        return Response(json.dumps({"meta_by_city": meta_by_city_display, "events": result}, indent=2), content_type="application/json")
     except Exception as e:
         import traceback
         return Response(json.dumps({"error": str(e), "traceback": traceback.format_exc()}), content_type="application/json"), 500
