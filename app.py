@@ -489,10 +489,12 @@ def fetch_fb_event_meta():
                 continue
             brand = "GX" if "gifterx" in name.lower() else "WoW"
             norm = normalize_city(city)
-            if num not in meta_by_num:
-                meta_by_num[num] = {"city": norm, "brand": brand}
+            # Brand-qualified key so GX-16 and WoW-16 don't collide
+            bk = f"{brand}-{num}"
+            if bk not in meta_by_num:
+                meta_by_num[bk] = {"city": norm, "brand": brand, "num": num}
             elif c.get("status") == "ACTIVE":
-                meta_by_num[num] = {"city": norm, "brand": brand}
+                meta_by_num[bk] = {"city": norm, "brand": brand, "num": num}
             # Key by (brand, city) so WoW Miami and GX Miami can coexist
             ck = (brand, norm)
             if c.get("status") == "ACTIVE":
@@ -532,21 +534,21 @@ def build_dashboard_html():
 
     # Fallback mapping if FB meta API fails
     known_events_by_num = {
-        1: {"city": "Miami", "brand": "WoW"},
-        3: {"city": "Orlando", "brand": "WoW"},
-        4: {"city": "Tampa", "brand": "WoW"},
-        5: {"city": "West Palm Beach", "brand": "WoW"},
-        6: {"city": "Jacksonville", "brand": "WoW"},
-        7: {"city": "Fort Lauderdale", "brand": "WoW"},
-        8: {"city": "Atlanta", "brand": "WoW"},
-        9: {"city": "Houston", "brand": "WoW"},
-        10: {"city": "Dallas", "brand": "WoW"},
-        11: {"city": "New York", "brand": "WoW"},
-        12: {"city": "Toronto", "brand": "WoW"},
-        13: {"city": "Washington", "brand": "WoW"},
-        14: {"city": "Boston", "brand": "WoW"},
-        15: {"city": "Chicago", "brand": "WoW"},
-        16: {"city": "Miami", "brand": "WoW"},
+        "WoW-1": {"city": "Miami", "brand": "WoW", "num": 1},
+        "WoW-3": {"city": "Orlando", "brand": "WoW", "num": 3},
+        "WoW-4": {"city": "Tampa", "brand": "WoW", "num": 4},
+        "WoW-5": {"city": "West Palm Beach", "brand": "WoW", "num": 5},
+        "WoW-6": {"city": "Jacksonville", "brand": "WoW", "num": 6},
+        "WoW-7": {"city": "Fort Lauderdale", "brand": "WoW", "num": 7},
+        "WoW-8": {"city": "Atlanta", "brand": "WoW", "num": 8},
+        "WoW-9": {"city": "Houston", "brand": "WoW", "num": 9},
+        "WoW-10": {"city": "Dallas", "brand": "WoW", "num": 10},
+        "WoW-11": {"city": "New York", "brand": "WoW", "num": 11},
+        "WoW-12": {"city": "Toronto", "brand": "WoW", "num": 12},
+        "WoW-13": {"city": "Washington", "brand": "WoW", "num": 13},
+        "WoW-14": {"city": "Boston", "brand": "WoW", "num": 14},
+        "WoW-15": {"city": "Chicago", "brand": "WoW", "num": 15},
+        "WoW-16": {"city": "Miami", "brand": "WoW", "num": 16},
     }
     known_events_by_city = {
         ("WoW", "Miami"): {"num": 1, "brand": "WoW"},
@@ -691,7 +693,9 @@ def build_dashboard_html():
         norm_city = normalize_city(city)
         eb_brand = brand
         if event_num is not None:
-            meta = meta_by_num.get(event_num, {})
+            # Brand-qualified lookup so GX-16 and WoW-16 don't collide
+            bk = f"{eb_brand}-{event_num}"
+            meta = meta_by_num.get(bk, {})
             if eb_brand != "GX":
                 if meta.get("city"):
                     norm_city = meta["city"]
@@ -1446,12 +1450,13 @@ def debug_processed():
             num_source = "eb_name" if event_num is not None else "meta_by_city"
             eb_brand = brand
             if event_num is not None:
-                meta = meta_by_num.get(event_num, {})
+                bk = f"{eb_brand}-{event_num}"
+                meta = meta_by_num.get(bk, {})
                 if eb_brand != "GX":
                     if meta.get("brand"):
                         brand = meta["brand"]
             else:
-                meta = meta_by_city.get(norm_city, {})
+                meta = meta_by_city.get((eb_brand, norm_city), {})
                 meta_brand = meta.get("brand", eb_brand)
                 if meta_brand == eb_brand:
                     event_num = meta.get("num", 0)
@@ -1472,7 +1477,7 @@ def debug_processed():
             })
         # JSON can't serialize tuple keys — flatten "(brand, city)" to "brand | city" for display
         meta_by_city_display = {f"{k[0]} | {k[1]}" if isinstance(k, tuple) else k: v for k, v in meta_by_city.items()}
-        return Response(json.dumps({"meta_by_city": meta_by_city_display, "events": result}, indent=2), content_type="application/json")
+        return Response(json.dumps({"meta_by_num": meta_by_num, "meta_by_city": meta_by_city_display, "events": result}, indent=2), content_type="application/json")
     except Exception as e:
         import traceback
         return Response(json.dumps({"error": str(e), "traceback": traceback.format_exc()}), content_type="application/json"), 500
