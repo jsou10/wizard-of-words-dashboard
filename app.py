@@ -1062,13 +1062,14 @@ def build_dashboard_html():
             const spend = fbd ? fbd.spend : 0;
             const metaTickets = fbd ? fbd.purchases : 0;
             const linkClicks = fbd ? (fbd.link_clicks || 0) : 0;
-            // Always use total_sold (matches Eventbrite UI). pTickets.length counts attendees, which over-counts for multi-attendee tickets (e.g. "2 for 1" deals, group orders).
-            const ebTicketsForCalc = e.total_sold;
+            // Period-filtered EB tickets: use attendee data filtered by period.
+            // For "all" period or completed events (no attendee data), fall back to total_sold.
+            const ebTicketsForCalc = (period === 'all' || isCompleted || e.tickets.length === 0) ? e.total_sold : pTickets.length;
             const overviewCpt = ebTicketsForCalc>0&&spend>0 ? spend/ebTicketsForCalc : 0;
             const metaCpt = metaTickets>0&&spend>0 ? spend/metaTickets : 0;
             const convRate = linkClicks>0 ? (ebTicketsForCalc/linkClicks*100) : 0;
 
-            totalPeriodTickets += pTickets.length;
+            totalPeriodTickets += ebTicketsForCalc;
             totalMetaTickets += metaTickets;
             totalPeriodRev += pRev;
             totalSold += e.total_sold;
@@ -1088,8 +1089,8 @@ def build_dashboard_html():
             const metaCptColor = metaCpt>300?'#f87171':metaCpt>200?'#fbbf24':metaCpt>0?'#60a5fa':'#94a3b8';
             const rowClass = isCompleted ? 'completed-row' : '';
             const daysDisplay = isCompleted ? '<span style="color:#94a3b8">Past</span>' : (days>0?days+'d':'<span style="color:#f59e0b">TODAY</span>');
-            // Display total_sold consistently (matches EB UI). For completed events, dim it.
-            const periodTicketDisplay = isCompleted ? '<span style="color:#94a3b8" title="Showing all-time totals for completed events">'+e.total_sold+'</span>' : e.total_sold;
+            // Display period-filtered EB tickets. For completed events (no attendee data), dim the all-time number.
+            const periodTicketDisplay = isCompleted ? '<span style="color:#94a3b8" title="Showing all-time totals for completed events">'+e.total_sold+'</span>' : ebTicketsForCalc;
 
             const convRateColor = convRate>=5?'#4ade80':convRate>=2?'#fbbf24':convRate>0?'#f87171':'#94a3b8';
             rows += `<tr class="${{rowClass}}">
@@ -1122,7 +1123,7 @@ def build_dashboard_html():
             const cmbConvColor = cmbConvRate>=5?'#4ade80':cmbConvRate>=2?'#fbbf24':cmbConvRate>0?'#f87171':'#94a3b8';
             cmbRows += `<tr class="${{rowClass}}">
                 <td class="cn"><span class="${{brandClass}}">${{e.brand}}</span> ${{e.display_city}}</td>
-                <td style="font-weight:600;color:#4ade80">${{e.total_sold}}</td>
+                <td style="font-weight:600;color:#4ade80">${{isCompleted ? '<span style="color:#94a3b8">'+e.total_sold+'</span>' : ebTicketsForCalc}}</td>
                 <td style="color:#4ade80">${{isCompleted?'&#8212;':'$'+fmt(pRev)}}</td>
                 <td style="color:#f59e0b">$${{fmt(spend)}}</td>
                 <td style="color:#60a5fa">${{linkClicks>0?linkClicks.toLocaleString():'&#8212;'}}</td>
