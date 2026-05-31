@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <title>Wizard of Words Dashboard</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; }
+        .header { background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border-bottom: 1px solid #334155; padding: 20px 32px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
+        .header h1 { font-size: 24px; font-weight: 700; color: #f8fafc; }
+        .header h1 span { color: #f59e0b; }
+        .generated { font-size: 12px; color: #94a3b8; }
+        .refresh-btn { padding: 6px 14px; border-radius: 8px; border: 1px solid #334155; background: #1e293b; color: #94a3b8; cursor: pointer; font-size: 12px; transition: all 0.15s; }
+        .refresh-btn:hover { border-color: #f59e0b; color: #f59e0b; }
+        .controls { padding: 16px 32px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+        .controls label { font-size: 12px; color: #94a3b8; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+        .dbtn { padding: 8px 16px; border-radius: 8px; border: 1px solid #334155; background: #1e293b; color: #e2e8f0; cursor: pointer; font-size: 13px; font-weight: 500; transition: all 0.15s; }
+        .dbtn:hover { border-color: #f59e0b; color: #f59e0b; }
+        .dbtn.active { background: #f59e0b; color: #0f172a; border-color: #f59e0b; font-weight: 700; }
+        .dinput { padding: 6px 10px; border-radius: 8px; border: 1px solid #334155; background: #1e293b; color: #e2e8f0; font-size: 13px; }
+        .dinput:focus { border-color: #f59e0b; outline: none; }
+        .tabs { display: flex; gap: 0; padding: 0 32px; border-bottom: 1px solid #334155; }
+        .tab { padding: 12px 24px; cursor: pointer; font-size: 14px; font-weight: 600; color: #94a3b8; border-bottom: 2px solid transparent; transition: all 0.15s; }
+        .tab:hover { color: #f8fafc; }
+        .tab.active { color: #f59e0b; border-bottom-color: #f59e0b; }
+        .tpanel { display: none; }
+        .tpanel.active { display: block; }
+        .cards { padding: 20px 32px; display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+        .card { background: #1e293b; border-radius: 12px; padding: 18px; border: 1px solid #334155; }
+        .card .lb { font-size: 11px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+        .card .vl { font-size: 26px; font-weight: 700; color: #f8fafc; }
+        .card .vl.grn { color: #4ade80; }
+        .card .vl.amb { color: #f59e0b; }
+        .card .vl.red { color: #f87171; }
+        .alerts { padding: 0 32px 12px; }
+        .alert { padding: 12px 18px; border-radius: 10px; margin-bottom: 6px; font-size: 13px; display: flex; align-items: center; gap: 8px; }
+        .alert-warn { background: rgba(248,113,113,0.1); border: 1px solid rgba(248,113,113,0.3); color: #fca5a5; }
+        .alert-info { background: rgba(96,165,250,0.1); border: 1px solid rgba(96,165,250,0.3); color: #93c5fd; }
+        .tbl-wrap { padding: 16px 32px; overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; background: #1e293b; border-radius: 12px; overflow: hidden; border: 1px solid #334155; }
+        thead th { padding: 12px 14px; text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #94a3b8; background: #0f172a; border-bottom: 1px solid #334155; font-weight: 600; white-space: nowrap; }
+        tbody td { padding: 12px 14px; font-size: 13px; border-bottom: 1px solid rgba(51,65,85,0.5); }
+        tbody tr:hover { background: #334155; }
+        tbody tr.completed-row { opacity: 0.6; }
+        .cn { font-weight: 600; color: #f8fafc; }
+        .bar { width: 100px; height: 7px; background: #334155; border-radius: 4px; overflow: hidden; display: inline-block; vertical-align: middle; margin-right: 6px; }
+        .bar-fill { height: 100%; border-radius: 4px; }
+        .bg { background: linear-gradient(90deg, #4ade80, #22c55e); }
+        .bb { background: linear-gradient(90deg, #60a5fa, #3b82f6); }
+        .ba { background: linear-gradient(90deg, #fbbf24, #f59e0b); }
+        .br { background: linear-gradient(90deg, #f87171, #ef4444); }
+        .tag { display: inline-block; padding: 2px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; }
+        .tag-so { background: rgba(74,222,128,0.15); color: #4ade80; }
+        .tag-st { background: rgba(96,165,250,0.15); color: #60a5fa; }
+        .tag-mo { background: rgba(251,191,36,0.15); color: #fbbf24; }
+        .tag-sl { background: rgba(248,113,113,0.15); color: #f87171; }
+        .tag-done { background: rgba(148,163,184,0.15); color: #94a3b8; }
+        .oitem { display: flex; align-items: center; gap: 14px; padding: 9px 14px; background: #1e293b; border-radius: 8px; border: 1px solid #334155; font-size: 13px; margin-bottom: 4px; }
+        .oitem .oc { font-weight: 600; color: #f59e0b; min-width: 110px; }
+        .oitem .ot { color: #94a3b8; min-width: 150px; }
+        .oitem .oa { color: #4ade80; font-weight: 600; margin-left: auto; }
+        .totrow { background: #0f172a !important; font-weight: 700; border-top: 2px solid #f59e0b; }
+        .totrow td { color: #f59e0b; }
+        .brand-wow { color: #f59e0b; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; }
+        .brand-gx { color: #a78bfa; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; }
+        .separator-row td { background: #0f172a; padding: 6px 14px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #64748b; border-bottom: 1px solid #334155; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1><span>Wizard of Words</span> Dashboard</h1>
+        <div style="display:flex;align-items:center;gap:12px">
+            <div class="generated">Data pulled: <span id="generated-time">loading…</span></div>
+            <button class="refresh-btn" onclick="window.location.href='/refresh'">&#x21BB; Refresh Data</button>
+        </div>
+    </div>
+    <div id="api-error-banner-slot"></div>
+    <div class="controls">
+        <label>Period:</label>
+        <button class="dbtn active" onclick="setPeriod('last7',this)">Last 7 Days</button>
+        <button class="dbtn" onclick="setPeriod('today',this)">Today</button>
+        <button class="dbtn" onclick="setPeriod('yesterday',this)">Yesterday</button>
+        <button class="dbtn" onclick="setPeriod('last2',this)">Last 2 Days</button>
+        <button class="dbtn" onclick="setPeriod('last30',this)">Last 30 Days</button>
+        <button class="dbtn" onclick="setPeriod('all',this)">All Time</button>
+        <span style="margin-left:12px;border-left:1px solid #334155;padding-left:12px">
+            <label>Custom:</label>
+            <input type="date" id="customStart" class="dinput" onchange="applyCustomRange()">
+            <span style="color:#94a3b8;font-size:12px">to</span>
+            <input type="date" id="customEnd" class="dinput" onchange="applyCustomRange()">
+        </span>
+        <div id="periodLabel" style="width:100%;font-size:13px;color:#94a3b8;margin-top:4px;padding-left:2px"></div>
+    </div>
+    <div class="tabs">
+        <div class="tab active" onclick="showTab('overview',this)">Overview</div>
+        <div class="tab" onclick="showTab('combined',this)">Ads + Tickets</div>
+        <div class="tab" onclick="showTab('orders',this)">Ticket Sales</div>
+    </div>
+    <div class="tpanel active" id="p-overview">
+        <div class="cards" id="summaryCards"></div>
+        <div class="alerts" id="alertBox"></div>
+        <div class="tbl-wrap"><table><thead><tr>
+            <th>Event</th><th>Event Date</th><th>Days Out</th><th>Amount Spent</th><th>Link Clicks</th><th>Tickets Sold (EB)</th><th>Conv Rate</th><th>Cost/Ticket (EB)</th><th>Tickets Sold (Meta)</th><th>Cost/Ticket (Meta)</th><th>Total Sold</th><th>Capacity</th><th>Fill %</th><th>Period Revenue</th><th>Status</th>
+        </tr></thead><tbody id="tblBody"></tbody></table></div>
+    </div>
+    <div class="tpanel" id="p-combined">
+        <div style="padding:20px 32px 0">
+            <h2 style="font-size:18px;color:#f8fafc;margin-bottom:4px">Real Tickets (EB) vs Ad Spend (Meta)</h2>
+            <p style="font-size:13px;color:#94a3b8;margin-bottom:16px">EB = source of truth for sales (no attribution delay). Meta = source of truth for spend.</p>
+        </div>
+        <div class="tbl-wrap"><table><thead><tr>
+            <th>Event</th><th>Tickets Sold (EB)</th><th>Revenue</th><th>Ad Spend</th><th>Link Clicks</th><th>Conv Rate</th><th>Cost/Ticket (EB)</th><th>ROAS</th><th>Tickets Sold (Meta)</th><th>Impressions</th><th>Reach</th>
+        </tr></thead><tbody id="cmbBody"></tbody></table></div>
+    </div>
+    <div class="tpanel" id="p-orders">
+        <div style="padding:20px 32px">
+            <h2 style="font-size:18px;color:#f8fafc;margin-bottom:12px">Recent Ticket Sales <span style="font-size:13px;color:#94a3b8">(within selected period)</span></h2>
+            <div id="orderList"></div>
+        </div>
+    </div>
+
+    <script>
+    
+    // ─── Live-API hydration ─────────────────────────────────────────────
+    let lastFetchedAt = null;
+    let staleThresholdSec = 300;
+    let _eventsAll = [];
+    let _allTicketsAll = [];
+    let _fbDataAll = {};
+
+    function fmtAgo(ts) {
+      if (!ts) return '—';
+      const s = Math.max(0, Math.floor((Date.now() - new Date(ts).getTime()) / 1000));
+      if (s < 60) return s + 's ago';
+      const m = Math.floor(s / 60);
+      if (m < 60) return m + 'm ago';
+      return Math.floor(m / 60) + 'h ago';
+    }
+
+    function showStaleBanner(msg) {
+      let el = document.getElementById('stale-banner');
+      if (!el) {
+        el = document.createElement('div');
+        el.id = 'stale-banner';
+        el.style.cssText = 'background:rgba(250,204,21,0.15);border:1px solid rgba(250,204,21,0.5);color:#facc15;padding:10px 24px;margin:8px 32px;border-radius:8px;font-size:13px;';
+        const c = document.querySelector('.controls');
+        if (c) c.before(el); else document.body.prepend(el);
+      }
+      el.textContent = msg;
+      el.style.display = 'block';
+    }
+    function hideStaleBanner() {
+      const el = document.getElementById('stale-banner');
+      if (el) el.style.display = 'none';
+    }
+    function tickAgo() {
+      const el = document.getElementById('generated-time');
+      if (!el || !lastFetchedAt) return;
+      const ageSec = Math.floor((Date.now() - new Date(lastFetchedAt).getTime()) / 1000);
+      el.textContent = 'Updated ' + fmtAgo(lastFetchedAt);
+      if (ageSec > staleThresholdSec) {
+        const m = Math.floor(ageSec / 60);
+        showStaleBanner('⚠ Data is ' + m + ' minute' + (m === 1 ? '' : 's') + ' old. Click Refresh to pull fresh numbers.');
+      } else {
+        hideStaleBanner();
+      }
+    }
+    setInterval(tickAgo, 1000);
+
+    function showApiBanner(msg) {
+      const slot = document.getElementById('api-error-banner-slot');
+      if (!slot) return;
+      slot.innerHTML = '<div style="background:rgba(239,68,68,0.15);border:2px solid rgba(239,68,68,0.5);border-radius:12px;padding:16px 24px;margin:16px 32px;color:#fca5a5;font-size:14px;font-weight:500">' + msg + '</div>';
+    }
+    function clearApiBanner() {
+      const slot = document.getElementById('api-error-banner-slot');
+      if (slot) slot.innerHTML = '';
+    }
+
+    async function loadData(force) {
+      try {
+        const r = await fetch('/api/data' + (force ? '?force=1' : ''));
+        const d = await r.json();
+        if (d.error && !d.events) {
+          showApiBanner('<div style="font-size:16px;font-weight:700;color:#f87171;margin-bottom:8px">⚠ Dashboard data fetch failed</div>' + (d.error || ''));
+          return;
+        }
+        _eventsAll = d.events || [];
+        _allTicketsAll = d.allTickets || [];
+        _fbDataAll = d.fbData || {};
+        lastFetchedAt = d.generatedAt;
+        if (d.stale) {
+          showApiBanner('<div style="font-size:14px;color:#facc15">Live fetch failed; showing cached data. ' + (d.error || '') + '</div>');
+        } else {
+          clearApiBanner();
+        }
+        // Wire into existing renderer's closure-captured variables
+        events.length = 0;
+        for (const e of _eventsAll) events.push(e);
+        allTickets.length = 0;
+        for (const t of _allTicketsAll) allTickets.push(t);
+        for (const k of Object.keys(fbData)) delete fbData[k];
+        for (const k of Object.keys(_fbDataAll)) fbData[k] = _fbDataAll[k];
+        if (typeof render === 'function') render();
+        if (typeof updatePeriodLabel === 'function') updatePeriodLabel();
+        tickAgo();
+      } catch (e) {
+        showApiBanner('<div style="font-size:14px;color:#f87171">Network error: ' + e.message + '</div>');
+      }
+    }
+
+    async function loadHealth() {
+      try { await fetch('/api/health?t=' + Date.now(), {cache: 'no-store'}); }
+      catch (e) {}
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+      const btn = document.querySelector('.refresh-btn');
+      if (btn) btn.onclick = function(e) { e.preventDefault(); loadData(true); };
+      loadData(false);
+      loadHealth();
+      setInterval(loadHealth, 60000);
+    });
+    // ────────────────────────────────────────────────────────────────────
+
+
+    let events = [];
+    let allTickets = [];
+    let fbData = {};
+    let period = 'last7';
+    let customFbCache = {};
+
+    const periodStarts = {
+        'today': new Date(new Date().setHours(0,0,0,0)),
+        'yesterday': new Date(new Date().setHours(0,0,0,0) - 86400000),
+        'last2': new Date(new Date().setHours(0,0,0,0) - 2*86400000),
+        'last7': new Date(new Date().setHours(0,0,0,0) - 7*86400000),
+        'last30': new Date(new Date().setHours(0,0,0,0) - 30*86400000),
+        'all': new Date('2020-01-01')
+    };
+    const periodEnds = {
+        'today': new Date(new Date().setHours(23,59,59,999)),
+        'yesterday': new Date(new Date().setHours(0,0,0,0) - 1),
+        'last2': new Date(new Date().setHours(23,59,59,999)),
+        'last7': new Date(new Date().setHours(23,59,59,999)),
+        'last30': new Date(new Date().setHours(23,59,59,999)),
+        'all': new Date(new Date().setHours(23,59,59,999))
+    };
+
+    function formatDate(d) {
+        return d.toLocaleDateString('en-US', {weekday:'short', month:'long', day:'numeric', year:'numeric'});
+    }
+    function updatePeriodLabel() {
+        const lbl = document.getElementById('periodLabel');
+        const now = new Date();
+        const todayMid = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const labels = {
+            'today': `Today: ${formatDate(todayMid)}`,
+            'yesterday': `Yesterday: ${formatDate(new Date(todayMid - 86400000))}`,
+            'last2': `Last 2 Days: ${formatDate(new Date(todayMid - 2*86400000))} \\u2014 ${formatDate(todayMid)}`,
+            'last7': `Last 7 Days: ${formatDate(new Date(todayMid - 7*86400000))} \\u2014 ${formatDate(todayMid)}`,
+            'last30': `Last 30 Days: ${formatDate(new Date(todayMid - 30*86400000))} \\u2014 ${formatDate(todayMid)}`,
+            'all': 'All Time'
+        };
+        if (period === 'custom') {
+            const s = document.getElementById('customStart').value;
+            const e = document.getElementById('customEnd').value;
+            if (s && e) lbl.textContent = `Custom Range: ${formatDate(new Date(s+'T00:00:00'))} \\u2014 ${formatDate(new Date(e+'T00:00:00'))}`;
+            else lbl.textContent = 'Select start and end dates';
+        } else {
+            lbl.textContent = labels[period] || '';
+        }
+    }
+
+    function setPeriod(p, el) {
+        period = p;
+        document.querySelectorAll('.dbtn').forEach(b=>b.classList.remove('active'));
+        if(el) el.classList.add('active');
+        if(p !== 'custom') {
+            document.getElementById('customStart').value = '';
+            document.getElementById('customEnd').value = '';
+        }
+        updatePeriodLabel();
+        render();
+    }
+
+    function fetchCustomFb(since, until) {
+        const cacheKey = since + '_' + until;
+        if (customFbCache[cacheKey]) return Promise.resolve(customFbCache[cacheKey]);
+        return fetch(`/api/fb_custom?since=${since}&until=${until}`)
+            .then(r => r.json())
+            .then(data => { customFbCache[cacheKey] = data; return data; });
+    }
+
+    function applyCustomRange() {
+        const s = document.getElementById('customStart').value;
+        const e = document.getElementById('customEnd').value;
+        if (!s || !e) return;
+        document.querySelectorAll('.dbtn').forEach(b=>b.classList.remove('active'));
+        periodStarts['custom'] = new Date(s + 'T00:00:00');
+        periodEnds['custom'] = new Date(e + 'T23:59:59.999');
+        period = 'custom';
+        updatePeriodLabel();
+        // Fetch FB data for custom range on demand
+        fetchCustomFb(s, e).then(data => {
+            fbData['custom'] = data;
+            render();
+        });
+    }
+
+    function showTab(t, el) {
+        document.querySelectorAll('.tab').forEach(b=>b.classList.remove('active'));
+        document.querySelectorAll('.tpanel').forEach(b=>b.classList.remove('active'));
+        el.classList.add('active');
+        document.getElementById('p-'+t).classList.add('active');
+    }
+
+    function filterOrders(orders) {
+        const start = periodStarts[period];
+        const end = periodEnds[period];
+        return orders.filter(o => {
+            const d = new Date(o.created);
+            return d >= start && d <= end;
+        });
+    }
+
+    function daysOut(dateStr) {
+        return Math.ceil((new Date(dateStr) - new Date()) / 86400000);
+    }
+
+    function fmt(n) { return n.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}); }
+
+    function barColor(pct) {
+        if(pct>=75) return 'bg';
+        if(pct>=40) return 'bb';
+        if(pct>=20) return 'ba';
+        return 'br';
+    }
+
+    function statusTag(pct, days, evStatus) {
+        if(evStatus === 'completed' || evStatus === 'ended') return '<span class="tag tag-done">Completed</span>';
+        if(pct>=95) return '<span class="tag tag-so">Nearly Sold Out</span>';
+        if(pct>=60) return '<span class="tag tag-st">Strong</span>';
+        if(pct>=30||days>30) return '<span class="tag tag-mo">Moderate</span>';
+        return '<span class="tag tag-sl">Needs Attention</span>';
+    }
+
+    function filterTickets(tickets) {
+        const start = periodStarts[period];
+        const end = periodEnds[period];
+        return tickets.filter(t => {
+            const d = new Date(t.created);
+            return d >= start && d <= end;
+        });
+    }
+
+    function getFbForPeriod() {
+        return fbData[period] || {};
+    }
+
+    function render() {
+        const fb = getFbForPeriod();
+        let totalPeriodTickets=0, totalMetaTickets=0, totalPeriodRev=0, totalSold=0, totalCap=0, totalSpend=0, totalLinkClicks=0, drySpells=0;
+        let rows='', cmbRows='', alerts=[];
+        let lastSection = '';
+
+        events.forEach(e => {
+            const section = (e.event_status === 'live' || e.event_status === 'started') ? 'active' : 'completed';
+            if (section !== lastSection && lastSection !== '') {
+                rows += '<tr class="separator-row"><td colspan="15">&#x2500;&#x2500; Completed Events &#x2500;&#x2500;</td></tr>';
+                cmbRows += '<tr class="separator-row"><td colspan="11">&#x2500;&#x2500; Completed Events &#x2500;&#x2500;</td></tr>';
+            }
+            lastSection = section;
+
+            const pTickets = filterTickets(e.tickets);
+            const pOrders = filterOrders(e.orders);
+            const pRev = pOrders.reduce((s,o)=>s+o.amount,0);
+            const days = daysOut(e.start_date);
+            const d = new Date(e.start_date);
+            const dateStr = d.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'});
+            const isCompleted = e.event_status === 'completed' || e.event_status === 'ended';
+
+            const fbKey = e.event_num ? (e.brand + '-' + e.event_num) : null;
+            const fbSource = isCompleted ? (fbData['all'] || {}) : fb;
+            const fbd = fbKey ? (fbSource[fbKey] || null) : null;
+            const spend = fbd ? fbd.spend : 0;
+            const metaTickets = fbd ? fbd.purchases : 0;
+            const linkClicks = fbd ? (fbd.link_clicks || 0) : 0;
+            // Period-filtered EB tickets: use attendee data filtered by period.
+            // For "all" period or completed events (no attendee data), fall back to total_sold.
+            const ebTicketsForCalc = (period === 'all' || isCompleted || e.tickets.length === 0) ? e.total_sold : pTickets.length;
+            const overviewCpt = ebTicketsForCalc>0&&spend>0 ? spend/ebTicketsForCalc : 0;
+            const metaCpt = metaTickets>0&&spend>0 ? spend/metaTickets : 0;
+            const convRate = linkClicks>0 ? (ebTicketsForCalc/linkClicks*100) : 0;
+
+            totalPeriodTickets += ebTicketsForCalc;
+            totalMetaTickets += metaTickets;
+            totalPeriodRev += pRev;
+            totalSold += e.total_sold;
+            totalCap += e.capacity;
+            totalSpend += spend;
+            totalLinkClicks += linkClicks;
+
+            if(!isCompleted && days>2 && e.total_sold>5) {
+                const recent = e.tickets.filter(t=>(new Date()-new Date(t.created))<48*3600000);
+                if(recent.length===0) { drySpells++; alerts.push({type:'warn',text:`${e.city}: No ticket sales in last 48 hours (${days} days out, ${e.fill_pct}% full)`}); }
+            }
+            if(!isCompleted && days<=30 && days>0 && e.fill_pct<30) alerts.push({type:'warn',text:`${e.city}: Only ${e.fill_pct}% full with ${days} days to go`});
+            if(!isCompleted && e.fill_pct>=90 && e.fill_pct<100) alerts.push({type:'info',text:`${e.city}: ${e.fill_pct}% full &#8212; only ${e.capacity-e.total_sold} tickets remaining!`});
+
+            const brandClass = e.brand === 'GX' ? 'brand-gx' : 'brand-wow';
+            const ebCptColor = overviewCpt>300?'#f87171':overviewCpt>200?'#fbbf24':overviewCpt>0?'#4ade80':'#94a3b8';
+            const metaCptColor = metaCpt>300?'#f87171':metaCpt>200?'#fbbf24':metaCpt>0?'#60a5fa':'#94a3b8';
+            const rowClass = isCompleted ? 'completed-row' : '';
+            const daysDisplay = isCompleted ? '<span style="color:#94a3b8">Past</span>' : (days>0?days+'d':'<span style="color:#f59e0b">TODAY</span>');
+            // Display period-filtered EB tickets. For completed events (no attendee data), dim the all-time number.
+            const periodTicketDisplay = isCompleted ? '<span style="color:#94a3b8" title="Showing all-time totals for completed events">'+e.total_sold+'</span>' : ebTicketsForCalc;
+
+            const convRateColor = convRate>=5?'#4ade80':convRate>=2?'#fbbf24':convRate>0?'#f87171':'#94a3b8';
+            rows += `<tr class="${rowClass}">
+                <td class="cn"><span class="${brandClass}">${e.brand}</span> ${e.display_city}</td>
+                <td style="color:#94a3b8">${dateStr}</td>
+                <td>${daysDisplay}</td>
+                <td style="color:#f59e0b">${spend>0?'$'+fmt(spend):'$0.00'}</td>
+                <td style="color:#60a5fa">${linkClicks>0?linkClicks.toLocaleString():'&#8212;'}</td>
+                <td style="font-weight:600;color:#4ade80">${periodTicketDisplay}</td>
+                <td style="font-weight:600;color:${convRateColor}">${convRate>0?convRate.toFixed(1)+'%':'&#8212;'}</td>
+                <td style="font-weight:600;color:${ebCptColor}">${overviewCpt>0?'$'+fmt(overviewCpt):'&#8212;'}</td>
+                <td style="color:#60a5fa">${metaTickets}</td>
+                <td style="font-weight:600;color:${metaCptColor}">${metaCpt>0?'$'+fmt(metaCpt):'&#8212;'}</td>
+                <td>${e.total_sold}</td>
+                <td>${e.capacity}</td>
+                <td><div class="bar"><div class="bar-fill ${barColor(e.fill_pct)}" style="width:${e.fill_pct}%"></div></div>${e.fill_pct}%</td>
+                <td style="color:#4ade80">${isCompleted?'&#8212;':'$'+fmt(pRev)}</td>
+                <td>${statusTag(e.fill_pct, days, e.event_status)}</td>
+            </tr>`;
+
+            const fbPurch = fbd ? fbd.purchases : 0;
+            const impr = fbd ? fbd.impressions : 0;
+            const reach = fbd ? fbd.reach : 0;
+            const cpt = ebTicketsForCalc>0&&spend>0 ? spend/ebTicketsForCalc : 0;
+            const roas = spend>0 ? pRev/spend : 0;
+
+            const cptColor = cpt>300?'#f87171':cpt>200?'#fbbf24':cpt>0?'#4ade80':'#94a3b8';
+            const roasColor = roas>=1?'#4ade80':'#f87171';
+            const cmbConvRate = linkClicks>0 ? (ebTicketsForCalc/linkClicks*100) : 0;
+            const cmbConvColor = cmbConvRate>=5?'#4ade80':cmbConvRate>=2?'#fbbf24':cmbConvRate>0?'#f87171':'#94a3b8';
+            cmbRows += `<tr class="${rowClass}">
+                <td class="cn"><span class="${brandClass}">${e.brand}</span> ${e.display_city}</td>
+                <td style="font-weight:600;color:#4ade80">${isCompleted ? '<span style="color:#94a3b8">'+e.total_sold+'</span>' : ebTicketsForCalc}</td>
+                <td style="color:#4ade80">${isCompleted?'&#8212;':'$'+fmt(pRev)}</td>
+                <td style="color:#f59e0b">$${fmt(spend)}</td>
+                <td style="color:#60a5fa">${linkClicks>0?linkClicks.toLocaleString():'&#8212;'}</td>
+                <td style="font-weight:600;color:${cmbConvColor}">${cmbConvRate>0?cmbConvRate.toFixed(1)+'%':'&#8212;'}</td>
+                <td style="font-weight:700;color:${cptColor}">${cpt>0?'$'+fmt(cpt):'&#8212;'}</td>
+                <td style="color:${roasColor}">${roas>0?roas.toFixed(2)+'x':'&#8212;'}</td>
+                <td style="color:#94a3b8">${fbPurch}</td>
+                <td style="color:#94a3b8">${impr.toLocaleString()}</td>
+                <td style="color:#94a3b8">${reach.toLocaleString()}</td>
+            </tr>`;
+        });
+
+        const tCpt = totalPeriodTickets>0&&totalSpend>0 ? totalSpend/totalPeriodTickets : 0;
+        const tRoas = totalSpend>0 ? totalPeriodRev/totalSpend : 0;
+        const tConvRate = totalLinkClicks>0 ? (totalPeriodTickets/totalLinkClicks*100) : 0;
+        const tConvColor = tConvRate>=5?'#4ade80':tConvRate>=2?'#fbbf24':tConvRate>0?'#f87171':'#94a3b8';
+        cmbRows += `<tr class="totrow">
+            <td>TOTALS</td>
+            <td style="color:#4ade80">${totalPeriodTickets}</td>
+            <td style="color:#4ade80">$${fmt(totalPeriodRev)}</td>
+            <td>$${fmt(totalSpend)}</td>
+            <td style="color:#60a5fa">${totalLinkClicks>0?totalLinkClicks.toLocaleString():'&#8212;'}</td>
+            <td style="font-weight:600;color:${tConvColor}">${tConvRate>0?tConvRate.toFixed(1)+'%':'&#8212;'}</td>
+            <td style="color:${tCpt>300?'#f87171':tCpt>200?'#fbbf24':'#4ade80'}">${tCpt>0?'$'+fmt(tCpt):'&#8212;'}</td>
+            <td style="color:${tRoas>=1?'#4ade80':'#f87171'}">${tRoas>0?tRoas.toFixed(2)+'x':'&#8212;'}</td>
+            <td></td><td></td><td></td>
+        </tr>`;
+
+        document.getElementById('tblBody').innerHTML = rows;
+        document.getElementById('cmbBody').innerHTML = cmbRows;
+
+        const fillPct = totalCap>0?Math.round(totalSold/totalCap*100):0;
+        const avgCpt = totalPeriodTickets>0&&totalSpend>0 ? totalSpend/totalPeriodTickets : 0;
+        document.getElementById('summaryCards').innerHTML = `
+            <div class="card"><div class="lb">Ticket Sales (Period)</div><div class="vl">${totalPeriodTickets}</div></div>
+            <div class="card"><div class="lb">Period Revenue</div><div class="vl grn">$${fmt(totalPeriodRev)}</div></div>
+            <div class="card"><div class="lb">Period Ad Spend</div><div class="vl amb">$${fmt(totalSpend)}</div></div>
+            <div class="card"><div class="lb">Avg Cost/Ticket</div><div class="vl ${avgCpt>300?'red':avgCpt>200?'amb':'grn'}">${avgCpt>0?'$'+fmt(avgCpt):'&#8212;'}</div></div>
+            <div class="card"><div class="lb">Total Sold (All Time)</div><div class="vl">${totalSold} / ${totalCap}</div></div>
+            <div class="card"><div class="lb">Overall Fill Rate</div><div class="vl ${fillPct>50?'grn':'amb'}">${fillPct}%</div></div>
+            <div class="card"><div class="lb">Dry Spell Alerts</div><div class="vl ${drySpells>0?'red':'grn'}">${drySpells>0?drySpells+' cities':'None'}</div></div>
+        `;
+
+        document.getElementById('alertBox').innerHTML = alerts.map(a=>`<div class="alert alert-${a.type}">${a.type==='warn'?'\\u26A0':'\\u2139'} ${a.text}</div>`).join('');
+
+        const pTicketsAll = filterTickets(allTickets);
+        if(pTicketsAll.length===0) {
+            document.getElementById('orderList').innerHTML = '<div style="text-align:center;padding:40px;color:#94a3b8">No ticket sales in selected period</div>';
+        } else {
+            document.getElementById('orderList').innerHTML = pTicketsAll.slice(0,150).map(t => {
+                const d = new Date(t.created);
+                return `<div class="oitem">
+                    <div class="oc">${t.city}</div>
+                    <div class="ot">${d.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'})} at ${d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})}</div>
+                    <div>${t.name}</div>
+                    <div style="color:#94a3b8;font-size:12px;margin-left:auto">${t.ticket_type}</div>
+                </div>`;
+            }).join('');
+        }
+    }
+
+    // initial render triggered by loadData()
+    </script>
+</body>
+</html>
