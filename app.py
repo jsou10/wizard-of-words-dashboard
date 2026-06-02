@@ -690,51 +690,6 @@ def api_data():
                             "error": f"Live fetch failed, serving stale data: {str(e)[:200]}"})
         return jsonify({"error": str(e)[:300], "errorClass": classify_error(str(e))}), 500
 
-@app.route("/debug/event_window/<event_id>")
-def debug_event_window(event_id):
-    """Return EB attendees + unique orders for an event within a given date window.
-
-    Query params: since=YYYY-MM-DD&until=YYYY-MM-DD
-    Filters by attendee.created timestamp.
-    """
-    from datetime import datetime, timezone as _tz
-    since = request.args.get("since")
-    until = request.args.get("until")
-    if not since or not until:
-        return jsonify({"error": "Missing since/until params (YYYY-MM-DD)"}), 400
-    try:
-        since_dt = datetime.strptime(since, "%Y-%m-%d").replace(tzinfo=_tz.utc)
-        until_dt = datetime.strptime(until, "%Y-%m-%d").replace(hour=23, minute=59, second=59, tzinfo=_tz.utc)
-        attendees = fetch_eb_attendees(event_id)
-        in_window = []
-        for a in attendees:
-            c = a.get("created", "")
-            if not c: continue
-            try:
-                ct = datetime.fromisoformat(c.replace("Z", "+00:00"))
-            except Exception:
-                continue
-            if since_dt <= ct <= until_dt:
-                in_window.append({
-                    "created": c,
-                    "name": a.get("profile", {}).get("name", "?"),
-                    "ticket_type": a.get("ticket_class_name", ""),
-                    "order_id": a.get("order_id", ""),
-                })
-        unique_orders = set(a["order_id"] for a in in_window if a["order_id"])
-        return jsonify({
-            "event_id": event_id,
-            "since": since,
-            "until": until,
-            "attendees_in_window": len(in_window),
-            "unique_orders_in_window": len(unique_orders),
-            "total_attendees_all_time": len(attendees),
-            "sample": in_window[:30]
-        })
-    except Exception as e:
-        import traceback
-        return jsonify({"error": str(e)[:300], "traceback": traceback.format_exc()[-600:]}), 500
-
 # ─── Startup validation ──────────────────────────────────────────────────────
 def validate_on_startup():
     log("info", "startup_validation_begin")
