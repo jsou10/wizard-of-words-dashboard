@@ -88,14 +88,15 @@ def is_stale(ts):
     return bool(ts) and (time.time() - ts) > STALE_THRESHOLD
 
 # ─── HTTP helpers ────────────────────────────────────────────────────────────
-def _eb_request(url, params, timeout=(10, 30), max_retries=5):
-    """Eventbrite request with retry on 429."""
+def _eb_request(url, params, timeout=(10, 30), max_retries=3):
+    """Eventbrite request with bounded retry on 429. Total worst-case time
+    is ~45s (3 attempts × 30s read-timeout + small backoff)."""
     last_err = None
     for attempt in range(max_retries):
         try:
             res = requests.get(url, params=params, timeout=timeout)
             if res.status_code == 429:
-                wait = min(2 ** attempt * 2, 30)
+                wait = min(2 ** attempt + 1, 8)  # 2s, 3s, 5s — bounded
                 log("warn", "eb_429", attempt=attempt + 1, wait_s=wait)
                 time.sleep(wait)
                 continue
@@ -104,7 +105,7 @@ def _eb_request(url, params, timeout=(10, 30), max_retries=5):
         except Exception as e:
             last_err = e
             if attempt < max_retries - 1:
-                time.sleep(min(2 ** attempt, 10))
+                time.sleep(min(2 ** attempt, 4))
                 continue
     raise last_err if last_err else Exception("eb_request exhausted retries")
 
@@ -429,12 +430,20 @@ def compute_dashboard_data():
             log("warn", "eb_events_failed", error=str(e))
             eb_events_box[0] = []
 
-    with ThreadPoolExecutor(max_workers=7) as pool:
+    # Hard timeouts + manual shutdown(wait=False) so a hung upstream future
+    # can't deadlock the whole compute (the 'with' block's default shutdown
+    # waits forever for stuck submissions — see Speakpreneur post-mortem).
+    pool = ThreadPoolExecutor(max_workers=7)
+    try:
         futs = [pool.submit(_fetch_fb, n, s, u) for n, (s, u) in fb_ranges.items()]
         futs.append(pool.submit(_fetch_eb))
         for f in futs:
-            try: f.result(timeout=60)
-            except Exception as e: log("warn", "parallel_fetch_error", error=str(e))
+            try:
+                f.result(timeout=45)
+            except Exception as e:
+                log("warn", "parallel_fetch_timeout_or_error", error=str(e))
+    finally:
+        pool.shutdown(wait=False)
 
     events = eb_events_box[0]
     state["eb"]["last_success_at"] = time.time() if events else state["eb"]["last_success_at"]
