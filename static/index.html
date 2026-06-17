@@ -102,8 +102,9 @@
         <div class="cards" id="summaryCards"></div>
         <div class="alerts" id="alertBox"></div>
         <div class="tbl-wrap"><table><thead><tr>
-            <th>Event</th><th>Event Date</th><th>Days Out</th><th>Amount Spent</th><th>Link Clicks</th><th>Tickets Sold (EB)</th><th>Conv Rate</th><th>Cost/Ticket (EB)</th><th>Tickets Sold (Meta)</th><th>Cost/Ticket (Meta)</th><th>Total Sold</th><th>Capacity</th><th>Fill %</th><th>Period Revenue</th><th>Status</th>
+            <th>Event</th><th>Event Date</th><th>Days Out</th><th>Amount Spent</th><th title="Total ad budget for this event — type to save">Total Budget</th><th title="Total Budget minus Amount Spent">Remaining</th><th title="Days until cutoff (day before event @ 5 PM ET)">Days Left</th><th title="Remaining ÷ Days Left — set Meta to this">Rec /Day</th><th title="Current daily budget on the active Meta campaign(s)">Meta /Day</th><th title="On pace · Set daily to $X · Past cutoff">Pacing</th><th>Link Clicks</th><th>Tickets Sold (EB)</th><th>Conv Rate</th><th>Cost/Ticket (EB)</th><th>Tickets Sold (Meta)</th><th>Cost/Ticket (Meta)</th><th>Total Sold</th><th>Capacity</th><th>Fill %</th><th>Period Revenue</th><th>Status</th>
         </tr></thead><tbody id="tblBody"></tbody></table></div>
+        <div style="padding:0 32px 14px;font-size:12px;color:#94a3b8">Budget pacing: type a total budget per active event — saves automatically · cutoff = day before event @ 5 PM ET</div>
     </div>
     <div class="tpanel" id="p-combined">
         <div style="padding:20px 32px 0">
@@ -206,6 +207,7 @@
         if (typeof render === 'function') render();
         if (typeof updatePeriodLabel === 'function') updatePeriodLabel();
         tickAgo();
+        if (typeof loadPacing === 'function') loadPacing();
       } catch (e) {
         showApiBanner('<div style="font-size:14px;color:#f87171">Network error: ' + e.message + '</div>');
       }
@@ -215,6 +217,93 @@
       try { await fetch('/api/health?t=' + Date.now(), {cache: 'no-store'}); }
       catch (e) {}
     }
+
+    // ─── Budget Pacing ──────────────────────────────────────────────────
+    function spGetAuthPw() {
+      let pw = localStorage.getItem('wow_auth');
+      if (!pw) {
+        pw = prompt('Enter dashboard password to save budgets (saved on this device)');
+        if (!pw) return null;
+        localStorage.setItem('wow_auth', pw);
+      }
+      return pw;
+    }
+    function spClearAuth() { localStorage.removeItem('wow_auth'); }
+    function spFmtMoney(n) {
+      if (n == null || isNaN(n)) return '—';
+      return '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+    function spFmtDays(n) {
+      if (n == null || isNaN(n)) return '—';
+      return Number(n).toFixed(1) + 'd';
+    }
+    let pacingByKey = {};
+    async function loadPacing() {
+      try {
+        const r = await fetch('/api/pacing?t=' + Date.now(), {cache: 'no-store'});
+        const d = await r.json();
+        const map = {};
+        (d.events || []).forEach(function(e){ if (e.event_key) map[e.event_key] = e; });
+        pacingByKey = map;
+        applyPacingToRows();
+      } catch (e) { /* silent — cells stay as — until the next poll */ }
+    }
+    function applyPacingToRows() {
+      Object.keys(pacingByKey).forEach(function(key){
+        const r = pacingByKey[key];
+        const p = r.pacing || {};
+        const bEl = document.getElementById('pace-budget-' + key);
+        if (bEl && document.activeElement !== bEl) {
+          bEl.value = r.total_budget > 0 ? Number(r.total_budget).toFixed(2) : '';
+        }
+        const remEl = document.getElementById('pace-rem-' + key);
+        if (remEl) {
+          if (p.remainingBudget != null) { remEl.textContent = spFmtMoney(p.remainingBudget); remEl.style.color = p.remainingBudget > 0 ? '#e2e8f0' : '#f87171'; }
+          else { remEl.textContent = '—'; remEl.style.color = '#94a3b8'; }
+        }
+        const dEl = document.getElementById('pace-days-' + key);
+        if (dEl) dEl.textContent = p.daysRemaining != null ? spFmtDays(p.daysRemaining) : '—';
+        const recEl = document.getElementById('pace-rec-' + key);
+        if (recEl) recEl.textContent = p.recommendedDailyBudget != null ? spFmtMoney(p.recommendedDailyBudget) : '—';
+        const curEl = document.getElementById('pace-cur-' + key);
+        if (curEl) curEl.textContent = r.current_daily_budget != null ? spFmtMoney(r.current_daily_budget) : '—';
+        const sEl = document.getElementById('pace-status-' + key);
+        if (sEl) {
+          let color = '#475569', label = '—', weight = '600';
+          if (!p.status) { label = 'enter a budget →'; color = '#64748b'; }
+          else {
+            label = p.statusLabel || '—';
+            if (p.severity === 'good') color = '#4ade80';
+            else if (p.severity === 'action') { color = '#fbbf24'; weight = '700'; }
+            else if (p.severity === 'bad') color = '#f87171';
+            else color = '#94a3b8';
+          }
+          sEl.style.color = color; sEl.style.fontWeight = weight; sEl.textContent = label;
+        }
+      });
+    }
+    async function spSaveBudget(inputEl) {
+      const key = inputEl.getAttribute('data-ev');
+      const total = parseFloat(inputEl.value || '0');
+      if (isNaN(total) || total < 0) return;
+      const pw = spGetAuthPw();
+      if (!pw) return;
+      try {
+        const r = await fetch('/api/budget/' + encodeURIComponent(key), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Dashboard-Auth': pw },
+          body: JSON.stringify({ total_budget: total })
+        });
+        if (!r.ok) {
+          if (r.status === 401) { spClearAuth(); alert('Wrong password — try again.'); return; }
+          const j = await r.json().catch(()=>({}));
+          alert('Save failed: ' + (j.error || r.status));
+          return;
+        }
+        loadPacing();
+      } catch (e) { alert('Network error: ' + e.message); }
+    }
+    setInterval(loadPacing, 60000);
 
     document.addEventListener('DOMContentLoaded', function() {
       const btn = document.querySelector('.refresh-btn');
@@ -369,7 +458,7 @@
         events.forEach(e => {
             const section = (e.event_status === 'live' || e.event_status === 'started') ? 'active' : 'completed';
             if (section !== lastSection && lastSection !== '') {
-                rows += '<tr class="separator-row"><td colspan="15">&#x2500;&#x2500; Completed Events &#x2500;&#x2500;</td></tr>';
+                rows += '<tr class="separator-row"><td colspan="21">&#x2500;&#x2500; Completed Events &#x2500;&#x2500;</td></tr>';
                 cmbRows += '<tr class="separator-row"><td colspan="11">&#x2500;&#x2500; Completed Events &#x2500;&#x2500;</td></tr>';
             }
             lastSection = section;
@@ -419,11 +508,26 @@
             const periodTicketDisplay = isCompleted ? '<span style="color:#94a3b8" title="Showing all-time totals for completed events">'+e.total_sold+'</span>' : ebTicketsForCalc;
 
             const convRateColor = convRate>=5?'#4ade80':convRate>=2?'#fbbf24':convRate>0?'#f87171':'#94a3b8';
+            // Budget-pacing cells — only for ACTIVE events with an event number
+            const evKey = e.event_num ? (e.brand + '-' + e.event_num) : null;
+            let paceCells;
+            if (!isCompleted && evKey) {
+                paceCells =
+                  '<td><input type="number" step="50" min="0" id="pace-budget-' + evKey + '" data-ev="' + evKey + '" onblur="spSaveBudget(this)" placeholder="enter" style="width:84px;padding:5px 7px;border-radius:6px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;font-size:13px;font-family:inherit"></td>' +
+                  '<td id="pace-rem-' + evKey + '" style="color:#94a3b8">&#8212;</td>' +
+                  '<td id="pace-days-' + evKey + '" style="color:#94a3b8">&#8212;</td>' +
+                  '<td id="pace-rec-' + evKey + '" style="color:#e91e8c;font-weight:700">&#8212;</td>' +
+                  '<td id="pace-cur-' + evKey + '" style="color:#94a3b8">&#8212;</td>' +
+                  '<td id="pace-status-' + evKey + '" style="color:#94a3b8;font-weight:600">&#8212;</td>';
+            } else {
+                paceCells = '<td></td><td></td><td></td><td></td><td></td><td></td>';
+            }
             rows += `<tr class="${rowClass}">
                 <td class="cn"><span class="${brandClass}">${e.brand}</span> ${e.display_city}</td>
                 <td style="color:#94a3b8">${dateStr}</td>
                 <td>${daysDisplay}</td>
                 <td style="color:#f59e0b">${spend>0?'$'+fmt(spend):'$0.00'}</td>
+                ${paceCells}
                 <td style="color:#60a5fa">${linkClicks>0?linkClicks.toLocaleString():'&#8212;'}</td>
                 <td style="font-weight:600;color:#4ade80">${periodTicketDisplay}</td>
                 <td style="font-weight:600;color:${convRateColor}">${convRate>0?convRate.toFixed(1)+'%':'&#8212;'}</td>
@@ -479,6 +583,7 @@
         </tr>`;
 
         document.getElementById('tblBody').innerHTML = rows;
+        if (typeof applyPacingToRows === 'function') applyPacingToRows();
         document.getElementById('cmbBody').innerHTML = cmbRows;
 
         const fillPct = totalCap>0?Math.round(totalSold/totalCap*100):0;

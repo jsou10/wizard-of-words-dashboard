@@ -69,6 +69,48 @@ def cache_get(key):
 def cache_set(key, value, ttl=CACHE_TTL):
     _cache[key] = {"value": value, "ts": time.time(), "ttl": ttl}
 
+def cache_peek_raw(key):
+    """Return the raw cache entry (value + ts), ignoring TTL. Lets /api/pacing
+    read the last-computed data even if the 5-min data cache just expired."""
+    return _cache.get(key)
+
+# ─── Persistent storage for user-entered budgets ─────────────────────────────
+# Uses the Render disk at /data if mounted; falls back to /tmp otherwise.
+# NOTE: until a 1GB disk mounted at /data is attached to this service in the
+# Render UI, budgets live on /tmp and are LOST on restart. Add the disk to make
+# "type the budget once and it saves" survive restarts.
+PERSIST_DIR = "/data" if os.path.isdir("/data") and os.access("/data", os.W_OK) else "/tmp/wow-persist"
+os.makedirs(PERSIST_DIR, exist_ok=True)
+BUDGETS_PATH = os.path.join(PERSIST_DIR, "event-budgets.json")
+
+def load_event_budgets():
+    try:
+        if os.path.exists(BUDGETS_PATH):
+            return json.load(open(BUDGETS_PATH))
+    except Exception as e:
+        log("warn", "load_budgets_failed", error=str(e))
+    return {}
+
+def save_event_budgets(budgets):
+    try:
+        tmp = BUDGETS_PATH + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(budgets, f, indent=2)
+        os.rename(tmp, BUDGETS_PATH)
+    except Exception as e:
+        log("error", "save_budgets_failed", error=str(e))
+        raise
+
+# ─── Auth (gates budget saves) ───────────────────────────────────────────────
+DASHBOARD_AUTH = os.environ.get("DASHBOARD_AUTH_PASSWORD", "")
+
+def require_auth(req_headers):
+    if not DASHBOARD_AUTH:
+        return False  # not configured = locked down
+    import hmac
+    provided = req_headers.get("X-Dashboard-Auth", "")
+    return hmac.compare_digest(str(provided), DASHBOARD_AUTH)
+
 # ─── Health state ────────────────────────────────────────────────────────────
 state = {
     "eb": {"last_success_at": None, "last_error": None},
@@ -578,6 +620,96 @@ def compute_dashboard_data():
         "version": APP_VERSION,
     }
 
+# ─── Budget pacing ───────────────────────────────────────────────────────────
+def fetch_campaigns_daily_budget_by_event():
+    """Returns {event_key: {'daily_budget_dollars': float, 'campaign_count': int,
+    'campaign_names': [...]}} where event_key is brand-qualified, e.g. 'WoW-14'
+    or 'GX-15'. Only ACTIVE campaigns are counted. Cached 5 min — campaign daily
+    budgets change rarely."""
+    cache_key = "campaigns_daily_budget"
+    cached = cache_get(cache_key)
+    if cached:
+        return cached
+    url = f"https://graph.facebook.com/v25.0/act_{FB_AD_ACCOUNT}/campaigns"
+    params = {"fields": "name,daily_budget,effective_status", "limit": 100, "access_token": FB_TOKEN}
+    result = {}
+    page_count = 0
+    while True:
+        res = _fb_get(url, params=params)
+        if res.status_code != 200:
+            break
+        data = res.json()
+        for c in data.get("data", []):
+            name = c.get("name", "")
+            if not is_relevant_campaign(name):
+                continue
+            if c.get("effective_status") != "ACTIVE":
+                continue
+            num = extract_event_num_from_fb(name)
+            if not num:
+                continue
+            brand = "GX" if "gifterx" in name.lower() else "WoW"
+            key = f"{brand}-{num}"
+            raw_budget = c.get("daily_budget")
+            if raw_budget is None:  # campaign uses ad-set budgets, not campaign-level
+                continue
+            daily_dollars = int(raw_budget) / 100.0  # Meta returns cents
+            if key not in result:
+                result[key] = {"daily_budget_dollars": 0.0, "campaign_count": 0, "campaign_names": []}
+            result[key]["daily_budget_dollars"] += daily_dollars
+            result[key]["campaign_count"] += 1
+            result[key]["campaign_names"].append(name)
+        paging = data.get("paging", {})
+        if not paging.get("next"):
+            break
+        url = paging["next"]
+        params = {}
+        page_count += 1
+        if page_count >= 5:
+            break
+    cache_set(cache_key, result, ttl=300)
+    return result
+
+def compute_pacing_for_event(event_key, total_budget, event_start_date_str, spend_to_date, current_daily_budget):
+    """VA-proof pacing: returns the ABSOLUTE daily budget to set in Meta (rounded
+    to a whole dollar), never a raise/lower delta. Cutoff = day before the event
+    at 5 PM Eastern."""
+    if total_budget <= 0:
+        return None
+    try:
+        event_start = datetime.fromisoformat(event_start_date_str.replace("Z", ""))
+    except Exception:
+        return None
+    event_date = event_start.date()
+    cutoff_date = event_date - timedelta(days=1)
+    cutoff_dt = datetime(cutoff_date.year, cutoff_date.month, cutoff_date.day, 17, 0, 0, tzinfo=ET)
+    now_et = datetime.now(ET)
+    days_remaining = max(0.0, (cutoff_dt - now_et).total_seconds() / 86400.0)
+    remaining_budget = max(0.0, total_budget - spend_to_date)
+
+    def _result(recommended, status, label, severity, delta=0):
+        return {
+            "totalBudget": total_budget, "spendToDate": spend_to_date,
+            "remainingBudget": remaining_budget, "cutoffAt": cutoff_dt.isoformat(),
+            "daysRemaining": days_remaining, "recommendedDailyBudget": recommended,
+            "currentDailyBudget": current_daily_budget, "status": status,
+            "statusLabel": label, "severity": severity, "delta": delta,
+        }
+
+    if days_remaining < 0.05:  # < ~1 hour to cutoff
+        return _result(0, "past_cutoff", "Past cutoff — turn ads off", "bad")
+    recommended_daily = round(remaining_budget / days_remaining)
+    if remaining_budget < 1:
+        return _result(0, "budget_spent", "Budget reached — pause ads", "bad")
+    delta = (current_daily_budget or 0) - recommended_daily
+    tolerance = max(25.0, 0.10 * recommended_daily)  # within ±$25 OR ±10% = on pace
+    if current_daily_budget is None or current_daily_budget == 0:
+        return _result(recommended_daily, "no_budget", f"Set daily budget to ${recommended_daily:,.0f}", "action", delta)
+    if abs(delta) <= tolerance:
+        return _result(recommended_daily, "on_pace", "✓ On pace — no change needed", "good", delta)
+    status = "over_pace" if delta > 0 else "under_pace"
+    return _result(recommended_daily, status, f"Set daily budget to ${recommended_daily:,.0f}", "action", delta)
+
 # ─── Routes ──────────────────────────────────────────────────────────────────
 @app.route("/")
 def index():
@@ -698,6 +830,70 @@ def api_data():
             return jsonify({**stale["value"], "cached": True, "stale": True,
                             "error": f"Live fetch failed, serving stale data: {str(e)[:200]}"})
         return jsonify({"error": str(e)[:300], "errorClass": classify_error(str(e))}), 500
+
+@app.route("/api/pacing")
+def api_pacing():
+    """Live budget pacing for all active events. Reads the warm data cache
+    (no upstream EB pull) + a 5-min-cached campaign daily-budget map."""
+    budgets = load_event_budgets()
+    entry = cache_peek_raw("data")
+    if not entry:
+        return jsonify({"events": [], "message": "No cached event data yet"})
+    payload = entry["value"]
+    all_events = payload.get("events", [])
+    active = [e for e in all_events if e.get("event_status") in ("live", "started")]
+    fb_all = (payload.get("fbData") or {}).get("all", {})
+    try:
+        daily_by_event = fetch_campaigns_daily_budget_by_event()
+    except Exception as e:
+        log("warn", "fetch_daily_budgets_failed", error=str(e))
+        daily_by_event = {}
+    rows = []
+    for ev in active:
+        num = ev.get("event_num")
+        brand = ev.get("brand")
+        key = f"{brand}-{num}" if num else None
+        spend = float((fb_all.get(key) or {}).get("spend", 0) or 0) if key else 0.0
+        current_daily = (daily_by_event.get(key) or {}).get("daily_budget_dollars") if key else None
+        total_budget = float(budgets.get(key, 0) or 0) if key else 0.0
+        pacing = None
+        if key and total_budget > 0:
+            pacing = compute_pacing_for_event(key, total_budget, ev.get("start_date", ""), spend, current_daily)
+        rows.append({
+            "event_key": key, "event_num": num, "brand": brand,
+            "city": ev.get("city"), "display_city": ev.get("display_city"),
+            "start_date": ev.get("start_date"), "total_budget": total_budget,
+            "spend_to_date": spend, "current_daily_budget": current_daily,
+            "active_campaigns": (daily_by_event.get(key) or {}).get("campaign_count", 0) if key else 0,
+            "pacing": pacing,
+        })
+    rows.sort(key=lambda r: r.get("start_date", "") or "")
+    return jsonify({"events": rows, "computed_at": datetime.now(ET).isoformat()})
+
+@app.route("/api/budget/<key>", methods=["POST"])
+def api_set_budget(key):
+    if not require_auth(request.headers):
+        return jsonify({"error": "Unauthorized"}), 401
+    body = request.get_json(silent=True) or {}
+    total = body.get("total_budget")
+    if total is None:
+        return jsonify({"error": "total_budget required"}), 400
+    try:
+        total = float(total)
+    except (TypeError, ValueError):
+        return jsonify({"error": "total_budget must be a number"}), 400
+    budgets = load_event_budgets()
+    if total <= 0:
+        budgets.pop(key, None)
+    else:
+        budgets[key] = total
+    save_event_budgets(budgets)
+    log("info", "budget_saved", event_key=key, total_budget=total)
+    return jsonify({"ok": True, "event_key": key, "total_budget": total})
+
+@app.route("/api/budget", methods=["GET"])
+def api_get_budgets():
+    return jsonify(load_event_budgets())
 
 # ─── Startup validation ──────────────────────────────────────────────────────
 def validate_on_startup():
