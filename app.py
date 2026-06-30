@@ -454,6 +454,45 @@ def compute_day_of_boundary(event):
     except Exception:
         return None
 
+# Historical day-of counts for COMPLETED events are immutable (the event is
+# over, sales are final), so we compute each once and keep it in-process. WoW
+# has no disk, so this re-populates after a restart — bounded to recent events
+# and capped per compute so a cold start can never stall on Eventbrite.
+_dayof_cache = {}                     # event_id(str) -> {"total","dayof","before"}
+DAYOF_BACKFILL_DAYS = 150             # only backfill events started within this window
+DAYOF_BACKFILL_MAX_PER_COMPUTE = 15   # cap fresh EB fetches per compute
+
+def _split_dayof(attendees, boundary_iso):
+    """Count valid attendees sold before vs on/after the event-day boundary (UTC)."""
+    if not boundary_iso:
+        return None
+    try:
+        b = datetime.fromisoformat(boundary_iso.replace("Z", "+00:00"))
+    except Exception:
+        return None
+    total = dayof = 0
+    for a in attendees:
+        if a.get("cancelled") or a.get("refunded"):
+            continue
+        total += 1
+        c = a.get("created")
+        if c:
+            try:
+                if datetime.fromisoformat(c.replace("Z", "+00:00")) >= b:
+                    dayof += 1
+            except Exception:
+                pass
+    return {"total": total, "dayof": dayof, "before": total - dayof}
+
+def _recent_completed(start_date_str):
+    """True if a completed event started within the backfill window (not far future)."""
+    try:
+        sd = datetime.fromisoformat(start_date_str).date()
+        delta = (datetime.now().date() - sd).days
+        return -2 <= delta <= DAYOF_BACKFILL_DAYS
+    except Exception:
+        return False
+
 # ─── Top-level data assembly ─────────────────────────────────────────────────
 def compute_dashboard_data():
     """Build the full payload the frontend renders from."""
@@ -522,6 +561,8 @@ def compute_dashboard_data():
     # Orders filter: only fetch since N days ago for active events (matches original)
     since_iso = (today_la - timedelta(days=30)).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
+    dayof_backfilled = 0  # cap fresh day-of fetches for completed events this compute
+
     for event in events:
         eid = event["id"]
         name = event["name"]["text"]
@@ -532,14 +573,30 @@ def compute_dashboard_data():
         total_sold = sum(tc.get("quantity_sold", 0) for tc in event.get("ticket_classes", []))
         event_status = event.get("status", "")
 
-        # Only fetch attendee/order detail for active events
+        # Fetch attendee/order detail for active events; backfill day-of counts
+        # for recent COMPLETED events (cached, immutable).
         attendees, orders = [], []
+        day_of_counts = None
         if event_status in ("live", "started"):
             try:
                 attendees = fetch_eb_attendees(eid)
                 orders = fetch_eb_orders(eid, since=since_iso)
             except Exception as e:
                 log("warn", "eb_active_enrich_failed", eid=eid, city=city, error=str(e))
+        else:
+            eid_str = str(eid)
+            if eid_str in _dayof_cache:
+                day_of_counts = _dayof_cache[eid_str]
+            elif _recent_completed(start_date) and dayof_backfilled < DAYOF_BACKFILL_MAX_PER_COMPUTE:
+                try:
+                    dc = _split_dayof(fetch_eb_attendees(eid), compute_day_of_boundary(event))
+                    if dc:
+                        _dayof_cache[eid_str] = dc
+                        day_of_counts = dc
+                        dayof_backfilled += 1
+                        log("info", "dayof_backfilled", eid=eid, city=city, **dc)
+                except Exception as e:
+                    log("warn", "dayof_backfill_failed", eid=eid, city=city, error=str(e))
 
         ticket_list = []
         for a in attendees:
@@ -590,6 +647,8 @@ def compute_dashboard_data():
             "name": name,
             "start_date": start_date,
             "day_of_boundary": compute_day_of_boundary(event),
+            "eb_before": day_of_counts["before"] if day_of_counts else None,
+            "eb_day_of": day_of_counts["dayof"] if day_of_counts else None,
             "capacity": capacity,
             "total_sold": total_sold,
             "fill_pct": round(total_sold / capacity * 100) if capacity > 0 else 0,

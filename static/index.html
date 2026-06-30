@@ -477,14 +477,20 @@
             const spend = fbd ? fbd.spend : 0;
             const metaTickets = fbd ? fbd.purchases : 0;
             const linkClicks = fbd ? (fbd.link_clicks || 0) : 0;
-            // EB ticket count, with day-of VIP sales split out for active events.
-            // The client sells in-person VIPs ON the event day; those aren't from
-            // ads, so we exclude sales made on/after the event's local start day
-            // (e.day_of_boundary, a UTC instant) from the ad-driven count and show
-            // them in a separate "Day-Of (EB)" column. Completed events have no
-            // timestamped tickets, so they fall back to total_sold (no split).
-            let ebTicketsForCalc, ebDayOf = 0;
-            if (isCompleted || e.tickets.length === 0) {
+            // EB ticket count, with day-of VIP sales split out. Active events:
+            // computed live from the timestamped ticket list. Completed events:
+            // use the server's backfilled snapshot (e.eb_before / e.eb_day_of)
+            // when available — otherwise fall back to total_sold (no split known).
+            let ebTicketsForCalc, ebDayOf = 0, ebDayOfKnown = false;
+            if (isCompleted) {
+                if (e.eb_before != null) {            // backfilled historical split
+                    ebTicketsForCalc = e.eb_before;
+                    ebDayOf = e.eb_day_of || 0;
+                    ebDayOfKnown = true;
+                } else {
+                    ebTicketsForCalc = e.total_sold;  // no split available
+                }
+            } else if (e.tickets.length === 0) {
                 ebTicketsForCalc = e.total_sold;
             } else {
                 const setTickets = (period === 'all') ? e.tickets : pTickets;
@@ -496,6 +502,7 @@
                     }).length;
                 }
                 ebTicketsForCalc = setTickets.length - ebDayOf;  // ad-driven: night-before & earlier
+                ebDayOfKnown = true;
             }
             const overviewCpt = ebTicketsForCalc>0&&spend>0 ? spend/ebTicketsForCalc : 0;
             const metaCpt = metaTickets>0&&spend>0 ? spend/metaTickets : 0;
@@ -522,7 +529,9 @@
             const rowClass = isCompleted ? 'completed-row' : '';
             const daysDisplay = isCompleted ? '<span style="color:#94a3b8">Past</span>' : (days>0?days+'d':'<span style="color:#f59e0b">TODAY</span>');
             // Display period-filtered EB tickets. For completed events (no attendee data), dim the all-time number.
-            const periodTicketDisplay = isCompleted ? '<span style="color:#94a3b8" title="Showing all-time totals for completed events">'+e.total_sold+'</span>' : ebTicketsForCalc;
+            const periodTicketDisplay = (isCompleted && e.eb_before == null)
+                ? '<span style="color:#94a3b8" title="All-time total (day-of split not available for this event)">'+e.total_sold+'</span>'
+                : ebTicketsForCalc;
 
             const convRateColor = convRate>=5?'#4ade80':convRate>=2?'#fbbf24':convRate>0?'#f87171':'#94a3b8';
             // Budget-pacing cells — only for ACTIVE events with an event number
@@ -547,7 +556,7 @@
                 ${paceCells}
                 <td style="color:#60a5fa">${linkClicks>0?linkClicks.toLocaleString():'&#8212;'}</td>
                 <td style="font-weight:600;color:#4ade80">${periodTicketDisplay}</td>
-                <td title="In-person VIP sales on the event day (excluded from cost/ticket)">${isCompleted ? '<span style="color:#475569">&#8212;</span>' : (ebDayOf>0 ? '<span style="color:#fbbf24;font-weight:600">'+ebDayOf+'</span>' : '<span style="color:#64748b">0</span>')}</td>
+                <td title="In-person VIP sales on the event day (excluded from cost/ticket)">${ebDayOfKnown ? (ebDayOf>0 ? '<span style="color:#fbbf24;font-weight:600">'+ebDayOf+'</span>' : '<span style="color:#64748b">0</span>') : '<span style="color:#475569">&#8212;</span>'}</td>
                 <td style="font-weight:600;color:${convRateColor}">${convRate>0?convRate.toFixed(1)+'%':'&#8212;'}</td>
                 <td style="font-weight:600;color:${ebCptColor}">${overviewCpt>0?'$'+fmt(overviewCpt):'&#8212;'}</td>
                 <td style="color:#60a5fa">${metaTickets}</td>
@@ -571,7 +580,7 @@
             const cmbConvColor = cmbConvRate>=5?'#4ade80':cmbConvRate>=2?'#fbbf24':cmbConvRate>0?'#f87171':'#94a3b8';
             cmbRows += `<tr class="${rowClass}">
                 <td class="cn"><span class="${brandClass}">${e.brand}</span> ${e.display_city}</td>
-                <td style="font-weight:600;color:#4ade80">${isCompleted ? '<span style="color:#94a3b8">'+e.total_sold+'</span>' : ebTicketsForCalc}</td>
+                <td style="font-weight:600;color:#4ade80">${(isCompleted && e.eb_before == null) ? '<span style="color:#94a3b8">'+e.total_sold+'</span>' : ebTicketsForCalc}</td>
                 <td style="color:#4ade80">${isCompleted?'&#8212;':'$'+fmt(pRev)}</td>
                 <td style="color:#f59e0b">$${fmt(spend)}</td>
                 <td style="color:#60a5fa">${linkClicks>0?linkClicks.toLocaleString():'&#8212;'}</td>
