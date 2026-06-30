@@ -102,7 +102,7 @@
         <div class="cards" id="summaryCards"></div>
         <div class="alerts" id="alertBox"></div>
         <div class="tbl-wrap"><table><thead><tr>
-            <th>Event</th><th>Event Date</th><th>Days Out</th><th>Amount Spent</th><th title="Total ad budget for this event — type to save">Total Budget</th><th title="Total Budget minus Amount Spent">Remaining</th><th title="Days until cutoff (day before event @ 5 PM ET)">Days Left</th><th title="Remaining ÷ Days Left — set Meta to this">Rec /Day</th><th title="Current daily budget on the active Meta campaign(s)">Meta /Day</th><th title="On pace · Set daily to $X · Past cutoff">Pacing</th><th>Link Clicks</th><th>Tickets Sold (EB)</th><th>Conv Rate</th><th>Cost/Ticket (EB)</th><th>Tickets Sold (Meta)</th><th>Cost/Ticket (Meta)</th><th>Total Sold</th><th>Capacity</th><th>Fill %</th><th>Period Revenue</th><th>Status</th>
+            <th>Event</th><th>Event Date</th><th>Days Out</th><th>Amount Spent</th><th title="Total ad budget for this event — type to save">Total Budget</th><th title="Total Budget minus Amount Spent">Remaining</th><th title="Days until cutoff (day before event @ 5 PM ET)">Days Left</th><th title="Remaining ÷ Days Left — set Meta to this">Rec /Day</th><th title="Current daily budget on the active Meta campaign(s)">Meta /Day</th><th title="On pace · Set daily to $X · Past cutoff">Pacing</th><th>Link Clicks</th><th title="Tickets sold the night before the event or earlier — the ad-driven number">Tickets Sold (EB)</th><th title="In-person VIP sales made on the event day — NOT counted in cost/ticket from ads">Day-Of (EB)</th><th>Conv Rate</th><th title="Ad spend ÷ ad-driven tickets (day-of VIP sales excluded)">Cost/Ticket (EB)</th><th>Tickets Sold (Meta)</th><th>Cost/Ticket (Meta)</th><th>Total Sold</th><th>Capacity</th><th>Fill %</th><th>Period Revenue</th><th>Status</th>
         </tr></thead><tbody id="tblBody"></tbody></table></div>
         <div style="padding:0 32px 14px;font-size:12px;color:#94a3b8">Budget pacing: type a total budget per active event — saves automatically · cutoff = day before event @ 5 PM ET</div>
     </div>
@@ -458,7 +458,7 @@
         events.forEach(e => {
             const section = (e.event_status === 'live' || e.event_status === 'started') ? 'active' : 'completed';
             if (section !== lastSection && lastSection !== '') {
-                rows += '<tr class="separator-row"><td colspan="21">&#x2500;&#x2500; Completed Events &#x2500;&#x2500;</td></tr>';
+                rows += '<tr class="separator-row"><td colspan="22">&#x2500;&#x2500; Completed Events &#x2500;&#x2500;</td></tr>';
                 cmbRows += '<tr class="separator-row"><td colspan="11">&#x2500;&#x2500; Completed Events &#x2500;&#x2500;</td></tr>';
             }
             lastSection = section;
@@ -477,9 +477,26 @@
             const spend = fbd ? fbd.spend : 0;
             const metaTickets = fbd ? fbd.purchases : 0;
             const linkClicks = fbd ? (fbd.link_clicks || 0) : 0;
-            // Period-filtered EB tickets: use attendee data filtered by period.
-            // For "all" period or completed events (no attendee data), fall back to total_sold.
-            const ebTicketsForCalc = (period === 'all' || isCompleted || e.tickets.length === 0) ? e.total_sold : pTickets.length;
+            // EB ticket count, with day-of VIP sales split out for active events.
+            // The client sells in-person VIPs ON the event day; those aren't from
+            // ads, so we exclude sales made on/after the event's local start day
+            // (e.day_of_boundary, a UTC instant) from the ad-driven count and show
+            // them in a separate "Day-Of (EB)" column. Completed events have no
+            // timestamped tickets, so they fall back to total_sold (no split).
+            let ebTicketsForCalc, ebDayOf = 0;
+            if (isCompleted || e.tickets.length === 0) {
+                ebTicketsForCalc = e.total_sold;
+            } else {
+                const setTickets = (period === 'all') ? e.tickets : pTickets;
+                const boundary = e.day_of_boundary ? new Date(e.day_of_boundary).getTime() : null;
+                if (boundary) {
+                    ebDayOf = setTickets.filter(t => {
+                        const c = new Date(t.created).getTime();
+                        return !isNaN(c) && c >= boundary;
+                    }).length;
+                }
+                ebTicketsForCalc = setTickets.length - ebDayOf;  // ad-driven: night-before & earlier
+            }
             const overviewCpt = ebTicketsForCalc>0&&spend>0 ? spend/ebTicketsForCalc : 0;
             const metaCpt = metaTickets>0&&spend>0 ? spend/metaTickets : 0;
             const convRate = linkClicks>0 ? (ebTicketsForCalc/linkClicks*100) : 0;
@@ -530,6 +547,7 @@
                 ${paceCells}
                 <td style="color:#60a5fa">${linkClicks>0?linkClicks.toLocaleString():'&#8212;'}</td>
                 <td style="font-weight:600;color:#4ade80">${periodTicketDisplay}</td>
+                <td title="In-person VIP sales on the event day (excluded from cost/ticket)">${isCompleted ? '<span style="color:#475569">&#8212;</span>' : (ebDayOf>0 ? '<span style="color:#fbbf24;font-weight:600">'+ebDayOf+'</span>' : '<span style="color:#64748b">0</span>')}</td>
                 <td style="font-weight:600;color:${convRateColor}">${convRate>0?convRate.toFixed(1)+'%':'&#8212;'}</td>
                 <td style="font-weight:600;color:${ebCptColor}">${overviewCpt>0?'$'+fmt(overviewCpt):'&#8212;'}</td>
                 <td style="color:#60a5fa">${metaTickets}</td>

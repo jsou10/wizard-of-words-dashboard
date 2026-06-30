@@ -430,6 +430,30 @@ def fetch_fb_event_meta():
     log("info", "fb_meta_done", by_num=len(meta_by_num), by_city=len(meta_by_city))
     return meta_by_num, meta_by_city
 
+def compute_day_of_boundary(event):
+    """UTC instant marking local midnight at the START of the event's first day.
+    EB tickets created >= this are 'day-of' sales (the in-person VIP upsells the
+    client doesn't want in paid-ads numbers). Returns an ISO 'Z' string or None.
+    Uses EB's start.local + start.utc to derive the local↔UTC offset so the
+    day boundary is anchored to the event's local calendar day, not UTC."""
+    try:
+        start = event.get("start", {}) or {}
+        local_s = start.get("local")           # e.g. "2026-06-30T10:00:00"
+        utc_s = start.get("utc")               # e.g. "2026-06-30T09:00:00Z"
+        if not local_s:
+            return None
+        local_dt = datetime.fromisoformat(local_s)  # naive local clock
+        if utc_s:
+            utc_dt = datetime.fromisoformat(utc_s.replace("Z", "+00:00")).replace(tzinfo=None)
+            offset = local_dt - utc_dt          # local clock minus utc clock
+        else:
+            offset = timedelta(0)               # fallback: treat local as UTC
+        local_midnight = local_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+        boundary_utc = local_midnight - offset  # naive UTC
+        return boundary_utc.replace(tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
+    except Exception:
+        return None
+
 # ─── Top-level data assembly ─────────────────────────────────────────────────
 def compute_dashboard_data():
     """Build the full payload the frontend renders from."""
@@ -565,6 +589,7 @@ def compute_dashboard_data():
             "event_id": eid,
             "name": name,
             "start_date": start_date,
+            "day_of_boundary": compute_day_of_boundary(event),
             "capacity": capacity,
             "total_sold": total_sold,
             "fill_pct": round(total_sold / capacity * 100) if capacity > 0 else 0,
