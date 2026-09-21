@@ -625,7 +625,7 @@
             <div class="card"><div class="lb">Dry Spell Alerts</div><div class="vl ${drySpells>0?'red':'grn'}">${drySpells>0?drySpells+' cities':'None'}</div></div>
         `;
 
-        document.getElementById('alertBox').innerHTML = alerts.map(a=>`<div class="alert alert-${a.type}">${a.type==='warn'?'':'\\u2139'} ${a.text}</div>`).join('');
+        document.getElementById('alertBox').innerHTML = alerts.map(a=>`<div class="alert alert-${a.type}">${a.text}</div>`).join('');
 
         const pTicketsAll = filterTickets(allTickets);
         if(pTicketsAll.length===0) {
