@@ -472,7 +472,7 @@ def _split_dayof(attendees, boundary_iso):
         return None
     total = dayof = 0
     for a in attendees:
-        if a.get("cancelled") or a.get("refunded"):
+        if a.get("status") != "Attending" or a.get("cancelled") or a.get("refunded"):
             continue
         total += 1
         c = a.get("created")
@@ -599,7 +599,14 @@ def compute_dashboard_data():
                     log("warn", "dayof_backfill_failed", eid=eid, city=city, error=str(e))
 
         ticket_list = []
+        uncounted = 0
         for a in attendees:
+            # Eventbrite tags comped / manually-added attendees "Uncounted Attending":
+            # they do not deduct inventory and are NOT in the UI's Sold count.
+            # Skip them (and cancelled/refunded) so Tickets Sold (EB) matches Eventbrite.
+            if a.get("status") != "Attending" or a.get("cancelled") or a.get("refunded"):
+                uncounted += 1
+                continue
             ticket = {
                 "created": a.get("created"),
                 "name": (a.get("profile", {}) or {}).get("name", "Unknown"),
@@ -651,6 +658,7 @@ def compute_dashboard_data():
             "eb_day_of": day_of_counts["dayof"] if day_of_counts else None,
             "capacity": capacity,
             "total_sold": total_sold,
+            "eb_uncounted": uncounted,
             "fill_pct": round(total_sold / capacity * 100) if capacity > 0 else 0,
             "tickets": ticket_list,
             "orders": order_list,
