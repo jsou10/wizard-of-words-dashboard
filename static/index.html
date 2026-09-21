@@ -348,15 +348,15 @@
         const labels = {
             'today': `Today: ${formatDate(todayMid)}`,
             'yesterday': `Yesterday: ${formatDate(new Date(todayMid - 86400000))}`,
-            'last2': `Last 2 Days: ${formatDate(new Date(todayMid - 2*86400000))} \\u2014 ${formatDate(todayMid)}`,
-            'last7': `Last 7 Days: ${formatDate(new Date(todayMid - 7*86400000))} \\u2014 ${formatDate(todayMid)}`,
-            'last30': `Last 30 Days: ${formatDate(new Date(todayMid - 30*86400000))} \\u2014 ${formatDate(todayMid)}`,
+            'last2': `Last 2 Days: ${formatDate(new Date(todayMid - 2*86400000))} to ${formatDate(todayMid)}`,
+            'last7': `Last 7 Days: ${formatDate(new Date(todayMid - 7*86400000))} to ${formatDate(todayMid)}`,
+            'last30': `Last 30 Days: ${formatDate(new Date(todayMid - 30*86400000))} to ${formatDate(todayMid)}`,
             'all': 'All Time'
         };
         if (period === 'custom') {
             const s = document.getElementById('customStart').value;
             const e = document.getElementById('customEnd').value;
-            if (s && e) lbl.textContent = `Custom Range: ${formatDate(new Date(s+'T00:00:00'))} \\u2014 ${formatDate(new Date(e+'T00:00:00'))}`;
+            if (s && e) lbl.textContent = `Custom Range: ${formatDate(new Date(s+'T00:00:00'))} to ${formatDate(new Date(e+'T00:00:00'))}`;
             else lbl.textContent = 'Select start and end dates';
         } else {
             lbl.textContent = labels[period] || '';
@@ -625,7 +625,7 @@
             <div class="card"><div class="lb">Dry Spell Alerts</div><div class="vl ${drySpells>0?'red':'grn'}">${drySpells>0?drySpells+' cities':'None'}</div></div>
         `;
 
-        document.getElementById('alertBox').innerHTML = alerts.map(a=>`<div class="alert alert-${a.type}">${a.type==='warn'?'\\u26A0':'\\u2139'} ${a.text}</div>`).join('');
+        document.getElementById('alertBox').innerHTML = alerts.map(a=>`<div class="alert alert-${a.type}">${a.type==='warn'?'':'\\u2139'} ${a.text}</div>`).join('');
 
         const pTicketsAll = filterTickets(allTickets);
         if(pTicketsAll.length===0) {
