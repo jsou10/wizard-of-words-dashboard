@@ -334,42 +334,66 @@
     let period = 'last7';
     let customFbCache = {};
 
-    const periodStarts = {
-        'today': new Date(new Date().setHours(0,0,0,0)),
-        'yesterday': new Date(new Date().setHours(0,0,0,0) - 86400000),
-        'last2': new Date(new Date().setHours(0,0,0,0) - 2*86400000),
-        'last7': new Date(new Date().setHours(0,0,0,0) - 7*86400000),
-        'last30': new Date(new Date().setHours(0,0,0,0) - 30*86400000),
-        'all': new Date('2020-01-01')
-    };
-    const periodEnds = {
-        'today': new Date(new Date().setHours(23,59,59,999)),
-        'yesterday': new Date(new Date().setHours(0,0,0,0) - 1),
-        'last2': new Date(new Date().setHours(23,59,59,999)),
-        'last7': new Date(new Date().setHours(23,59,59,999)),
-        'last30': new Date(new Date().setHours(23,59,59,999)),
-        'all': new Date(new Date().setHours(23,59,59,999))
-    };
+    // ─── Date presets live in the REPORT timezone (banked 2026-09-24) ─────────
+    // Never build "Today" from the viewer's clock (setHours / new Date()) or
+    // format it with toISOString(): a viewer in another timezone, or a UTC
+    // rollover after 8pm ET, showed the wrong day and $0. The calendar day is
+    // taken in REPORT_TZ (same day boundary the server uses for Meta spend),
+    // computed fresh on every call so a tab left open past midnight moves on.
+    const REPORT_TZ = 'America/Los_Angeles';
+    const TZ_LABEL = 'Pacific time';
+    const _ymdFmt = new Intl.DateTimeFormat('en-CA', {timeZone: REPORT_TZ, year: 'numeric', month: '2-digit', day: '2-digit'});
+    function tzYmd(dateLike) {
+        const d = dateLike instanceof Date ? dateLike : new Date(dateLike);
+        return isNaN(d) ? '' : _ymdFmt.format(d);
+    }
+    function tzToday() { return tzYmd(new Date()); }
+    function shiftYmd(ymd, n) {
+        // Anchor at noon UTC so day math never crosses a DST or UTC boundary.
+        const [y, m, d] = ymd.split('-').map(Number);
+        const dt = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+        dt.setUTCDate(dt.getUTCDate() + n);
+        const p = (v) => String(v).padStart(2, '0');
+        return `${dt.getUTCFullYear()}-${p(dt.getUTCMonth() + 1)}-${p(dt.getUTCDate())}`;
+    }
+    let customRange = null; // ['YYYY-MM-DD', 'YYYY-MM-DD'] once the custom picker is applied
+    function periodBounds() {
+        const t = tzToday();
+        switch (period) {
+            case 'today':     return [t, t];
+            case 'yesterday': return [shiftYmd(t, -1), shiftYmd(t, -1)];
+            case 'last2':     return [shiftYmd(t, -2), t];
+            case 'last7':     return [shiftYmd(t, -7), t];
+            case 'last30':    return [shiftYmd(t, -30), t];
+            case 'custom':    return customRange || ['1900-01-01', '2999-12-31'];
+            default:          return ['2020-01-01', '2999-12-31']; // all time
+        }
+    }
+    function inPeriod(created) {
+        const [s, e] = periodBounds();
+        const d = tzYmd(created);
+        return d !== '' && d >= s && d <= e;
+    }
 
-    function formatDate(d) {
-        return d.toLocaleDateString('en-US', {weekday:'short', month:'long', day:'numeric', year:'numeric'});
+    function formatDate(ymd) {
+        // ymd is a YYYY-MM-DD string in REPORT_TZ; render it without any timezone shift
+        return new Date(ymd + 'T12:00:00Z').toLocaleDateString('en-US', {weekday:'short', month:'long', day:'numeric', year:'numeric', timeZone: 'UTC'});
     }
     function updatePeriodLabel() {
         const lbl = document.getElementById('periodLabel');
-        const now = new Date();
-        const todayMid = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const t = tzToday();
         const labels = {
-            'today': `Today: ${formatDate(todayMid)}`,
-            'yesterday': `Yesterday: ${formatDate(new Date(todayMid - 86400000))}`,
-            'last2': `Last 2 Days: ${formatDate(new Date(todayMid - 2*86400000))} to ${formatDate(todayMid)}`,
-            'last7': `Last 7 Days: ${formatDate(new Date(todayMid - 7*86400000))} to ${formatDate(todayMid)}`,
-            'last30': `Last 30 Days: ${formatDate(new Date(todayMid - 30*86400000))} to ${formatDate(todayMid)}`,
+            'today': `Today: ${formatDate(t)} (${TZ_LABEL})`,
+            'yesterday': `Yesterday: ${formatDate(shiftYmd(t, -1))} (${TZ_LABEL})`,
+            'last2': `Last 2 Days: ${formatDate(shiftYmd(t, -2))} to ${formatDate(t)} (${TZ_LABEL})`,
+            'last7': `Last 7 Days: ${formatDate(shiftYmd(t, -7))} to ${formatDate(t)} (${TZ_LABEL})`,
+            'last30': `Last 30 Days: ${formatDate(shiftYmd(t, -30))} to ${formatDate(t)} (${TZ_LABEL})`,
             'all': 'All Time'
         };
         if (period === 'custom') {
             const s = document.getElementById('customStart').value;
             const e = document.getElementById('customEnd').value;
-            if (s && e) lbl.textContent = `Custom Range: ${formatDate(new Date(s+'T00:00:00'))} to ${formatDate(new Date(e+'T00:00:00'))}`;
+            if (s && e) lbl.textContent = `Custom Range: ${formatDate(s)} to ${formatDate(e)} (${TZ_LABEL})`;
             else lbl.textContent = 'Select start and end dates';
         } else {
             lbl.textContent = labels[period] || '';
@@ -401,8 +425,7 @@
         const e = document.getElementById('customEnd').value;
         if (!s || !e) return;
         document.querySelectorAll('.dbtn').forEach(b=>b.classList.remove('active'));
-        periodStarts['custom'] = new Date(s + 'T00:00:00');
-        periodEnds['custom'] = new Date(e + 'T23:59:59.999');
+        customRange = [s, e];
         period = 'custom';
         updatePeriodLabel();
         // Fetch FB data for custom range on demand
@@ -420,12 +443,7 @@
     }
 
     function filterOrders(orders) {
-        const start = periodStarts[period];
-        const end = periodEnds[period];
-        return orders.filter(o => {
-            const d = new Date(o.created);
-            return d >= start && d <= end;
-        });
+        return orders.filter(o => inPeriod(o.created));
     }
 
     function daysOut(dateStr) {
@@ -450,12 +468,7 @@
     }
 
     function filterTickets(tickets) {
-        const start = periodStarts[period];
-        const end = periodEnds[period];
-        return tickets.filter(t => {
-            const d = new Date(t.created);
-            return d >= start && d <= end;
-        });
+        return tickets.filter(t => inPeriod(t.created));
     }
 
     function getFbForPeriod() {

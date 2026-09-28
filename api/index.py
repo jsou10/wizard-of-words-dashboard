@@ -38,7 +38,7 @@ from flask import Flask, Response, jsonify, request, send_from_directory
 from werkzeug.exceptions import HTTPException
 
 # ─── Config ──────────────────────────────────────────────────────────────────
-APP_VERSION = "v4.0-vercel"
+APP_VERSION = "v4.1-vercel"
 ET = ZoneInfo("America/New_York")
 AD_ACCOUNT_TZ = ZoneInfo("America/Los_Angeles")  # CK's ad account is in LA tz
 
@@ -886,6 +886,7 @@ def api_config():
         "version": APP_VERSION,
         "cacheTtlSeconds": DATA_CACHE_TTL,
         "staleThresholdSeconds": STALE_THRESHOLD,
+        "reportTimezone": "America/Los_Angeles",
     })
 
 @app.route("/api/health")
