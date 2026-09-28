@@ -240,8 +240,21 @@
     let pacingByKey = {};
     async function loadPacing() {
       try {
-        const r = await fetch('/api/pacing?t=' + Date.now(), {cache: 'no-store'});
+        // Send the events + all-time spend this page already holds, so the
+        // server never depends on its own (per-instance) cache on Vercel.
+        const spendAll = {};
+        const fbAll = fbData['all'] || {};
+        Object.keys(fbAll).forEach(function(k){ spendAll[k] = { spend: (fbAll[k] && fbAll[k].spend) || 0 }; });
+        const evs = events
+          .filter(function(e){ return e.event_status === 'live' || e.event_status === 'started'; })
+          .map(function(e){ return { event_status: e.event_status, event_num: e.event_num, brand: e.brand,
+                                     city: e.city, display_city: e.display_city, start_date: e.start_date }; });
+        const opts = evs.length
+          ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ events: evs, spend: spendAll }), cache: 'no-store' }
+          : { cache: 'no-store' };
+        const r = await fetch('/api/pacing?t=' + Date.now(), opts);
         const d = await r.json();
+        if (!(d.events || []).length && Object.keys(pacingByKey).length) return; // keep what we have on an empty answer
         const map = {};
         (d.events || []).forEach(function(e){ if (e.event_key) map[e.event_key] = e; });
         pacingByKey = map;

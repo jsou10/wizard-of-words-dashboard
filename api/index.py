@@ -995,18 +995,29 @@ def api_data():
                             "error": f"Live fetch failed, serving stale data: {str(e)[:200]}"})
         return jsonify({"error": str(e)[:300], "errorClass": classify_error(str(e))}), 500
 
-@app.route("/api/pacing")
+@app.route("/api/pacing", methods=["GET", "POST"])
 def api_pacing():
-    """Live budget pacing for all active events. Reads the warm data cache
-    (no upstream EB pull) + a 5-min-cached campaign daily-budget map."""
+    """Live budget pacing for all active events.
+
+    POST (preferred, added 2026-09-28): the browser sends the event list and
+    all-time spend it already holds from /api/data, so this works on ANY Vercel
+    instance. GET falls back to this instance's warm data cache, which on Vercel
+    is usually empty (each request may land on a different instance) and was
+    why the Total Budget boxes went blank after every date-range switch.
+    """
     budgets = load_event_budgets()
-    entry = cache_peek_raw("data")
-    if not entry:
-        return jsonify({"events": [], "message": "No cached event data yet"})
-    payload = entry["value"]
-    all_events = payload.get("events", [])
+    body = request.get_json(silent=True) if request.method == "POST" else None
+    if body and isinstance(body.get("events"), list):
+        all_events = body.get("events") or []
+        fb_all = body.get("spend") or {}
+    else:
+        entry = cache_peek_raw("data")
+        if not entry:
+            return jsonify({"events": [], "message": "No cached event data yet"})
+        payload = entry["value"]
+        all_events = payload.get("events", [])
+        fb_all = (payload.get("fbData") or {}).get("all", {})
     active = [e for e in all_events if e.get("event_status") in ("live", "started")]
-    fb_all = (payload.get("fbData") or {}).get("all", {})
     try:
         daily_by_event = fetch_campaigns_daily_budget_by_event()
     except Exception as e:
