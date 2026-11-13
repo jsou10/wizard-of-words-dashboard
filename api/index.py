@@ -430,6 +430,17 @@ def fetch_fb_insights(since_date, until_date):
 
     return [r for r in deduped if is_relevant_campaign(r.get("campaign_name", ""))]
 
+_MONTHS = {"jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+           "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12}
+
+def extract_year_month_from_fb(campaign_name):
+    """Event year + month from a campaign name ("... Jacksonville 2026 NOV 10-11 ..." -> (2026, 11)).
+    Used to tell two visits to the same city apart."""
+    m = re.search(r'(20\d{2})\s+([A-Za-z]{3,9})\.?\s+\d', campaign_name or "")
+    if not m: return None
+    mon = _MONTHS.get(m.group(2)[:3].lower())
+    return (int(m.group(1)), mon) if mon else None
+
 def fetch_fb_event_meta():
     """Build event_num → {city, brand} AND city → {num, brand} mappings."""
     url = f"https://graph.facebook.com/v25.0/act_{FB_AD_ACCOUNT}/campaigns"
@@ -459,6 +470,11 @@ def fetch_fb_event_meta():
             elif c.get("status") == "ACTIVE":
                 meta_by_num[bk] = {"city": norm, "brand": brand, "num": num}
             ck = (brand, norm)
+            # Date-qualified key so a return visit to a city does not take over
+            # the first visit's row: (brand, city, year, month) -> its own event number.
+            ym = extract_year_month_from_fb(name)
+            if ym:
+                meta_by_city.setdefault((brand, norm, ym[0], ym[1]), {"num": num, "brand": brand})
             if c.get("status") == "ACTIVE":
                 meta_by_city[ck] = {"num": num, "brand": brand}
             elif ck not in meta_by_city:
@@ -718,7 +734,9 @@ def compute_dashboard_data():
                 if meta.get("city"): norm_city = meta["city"]
                 if meta.get("brand"): brand = meta["brand"]
         else:
-            meta = meta_by_city.get((eb_brand, norm_city), {})
+            # Match on city + event month first (repeat cities), then city alone.
+            meta = (meta_by_city.get((eb_brand, norm_city, int(start_date[:4]), int(start_date[5:7])))
+                    or meta_by_city.get((eb_brand, norm_city), {}))
             event_num = meta.get("num", 0)
             if meta.get("brand"): brand = meta["brand"]
 
