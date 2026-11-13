@@ -343,6 +343,13 @@ def fetch_eb_events():
             if len(all_events) >= 60 or page_count >= 2: break
             time.sleep(0.2)
 
+    # An event that just finished can come back under both "ended" and "completed":
+    # keep one row per event id.
+    seen_ids, unique = set(), []
+    for e in all_events:
+        if e["id"] not in seen_ids:
+            seen_ids.add(e["id"]); unique.append(e)
+    all_events = unique
     log("info", "eb_total_events", count=len(all_events))
     return all_events
 
@@ -544,7 +551,7 @@ def _split_dayof(attendees, boundary_iso):
         return None
     total = dayof = 0
     for a in attendees:
-        if a.get("status") != "Attending" or a.get("cancelled") or a.get("refunded"):
+        if a.get("status") not in ("Attending", "Checked In") or a.get("cancelled") or a.get("refunded"):
             continue
         total += 1
         c = a.get("created")
@@ -676,7 +683,7 @@ def compute_dashboard_data():
             # Eventbrite tags comped / manually-added attendees "Uncounted Attending":
             # they do not deduct inventory and are NOT in the UI's Sold count.
             # Skip them (and cancelled/refunded) so Tickets Sold (EB) matches Eventbrite.
-            if a.get("status") != "Attending" or a.get("cancelled") or a.get("refunded"):
+            if a.get("status") not in ("Attending", "Checked In") or a.get("cancelled") or a.get("refunded"):
                 uncounted += 1
                 continue
             ticket = {
